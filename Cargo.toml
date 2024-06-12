@@ -1,0 +1,27 @@
+[package]
+name = "twine-spool-service"
+version = "0.1.0"
+edition = "2021"
+authors = [ "Jasper Palfree <jasper@wellcaffeinated.net>" ]
+
+[package.metadata.release]
+release = false
+
+# https://github.com/rustwasm/wasm-pack/issues/1247
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = { version = "0.3.0", features = ["d1"] }
+worker-macros = { version = "0.3.0" }
+console_error_panic_hook = { version = "0.1.1" }
+serde = "1.0"
+futures = "0.3"
+twine = { path = "../twine-rs", features = ["build"] }
+thiserror = "1.0"
+
+[dependencies.ring]
+features = ["wasm32_unknown_unknown_js"]

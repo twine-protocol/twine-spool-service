@@ -1,0 +1,12 @@
+name = "twine-spool-service"
+main = "build/worker/shim.mjs"
+compatibility_date = "2024-05-31"
+account_id = "e13789758f8ce4b13f01d121f8a1d028"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
+
+[[d1_databases]]
+binding = "DB" # i.e. available in your Worker on env.DB
+database_name = "spool-prod"
+database_id = "9f6220b6-25f3-4bc0-979a-c5803785ef3b"
