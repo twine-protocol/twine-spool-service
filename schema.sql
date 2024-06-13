@@ -1,6 +1,8 @@
+-- Command to run: wrangler d1 execute spool-prod --local --file=./schema.sql
 -- If starting fresh...
 -- DROP TABLE IF EXISTS Strands;
 -- DROP TABLE IF EXISTS Tixels;
+-- DROP TABLE IF EXISTS Registrations;
 
 CREATE TABLE IF NOT EXISTS Strands (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,3 +27,11 @@ CREATE TABLE IF NOT EXISTS Tixels (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tixels_cid ON Tixels (cid);
+
+CREATE TABLE IF NOT EXISTS Registrations (
+  uuid TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  status TEXT NOT NULL,
+  strand_cid BINARY(82) UNIQUE NOT NULL,
+  strand BLOB
+);

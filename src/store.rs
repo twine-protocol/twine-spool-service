@@ -6,8 +6,10 @@ use twine::twine_core::serde_ipld_dagjson::codec::DagJsonCodec;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
-  #[error("Corrupted data: {0}")]
+  #[error("Corrupted cid: {0}")]
   Corrupted(#[from] twine::twine_core::cid::Error),
+  #[error("Bad Data: {0}")]
+  BadRequestData(String),
   #[error("Server error: {0}")]
   ServerError(#[from] worker::Error),
   #[error("Verification error: {0}")]
@@ -26,13 +28,16 @@ impl ApiError {
       ApiError::InvalidQuery(e) => worker::Response::error(e.to_string(), 400),
       ApiError::NotFound => worker::Response::error("Not found", 404),
       ApiError::Corrupted(e) => worker::Response::error(e.to_string(), 500),
+      ApiError::BadRequestData(e) => worker::Response::error(e.to_string(), 400),
     }
   }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct BlockRecord {
+  #[serde(with = "serde_bytes")]
   cid: Vec<u8>,
+  #[serde(with = "serde_bytes")]
   data: Vec<u8>,
 }
 
@@ -83,6 +88,22 @@ impl D1Store {
     }
     let tixel = self.get_tixel(cid).await?;
     Ok(tixel.into())
+  }
+
+  pub async fn has_strand(&self, cid: &Cid) -> Result<bool, ApiError> {
+    let query = query!(&self.0, "SELECT EXISTS(SELECT 1 FROM Strands WHERE cid = ?1)", cid.to_bytes())?;
+    let result = query.first::<bool>(None).await?;
+    Ok(result.unwrap())
+  }
+
+  pub async fn has_tixel(&self, cid: &Cid) -> Result<bool, ApiError> {
+    let query = query!(&self.0, "SELECT EXISTS(SELECT 1 FROM Tixels WHERE cid = ?1)", cid.to_bytes())?;
+    let result = query.first::<bool>(None).await?;
+    Ok(result.unwrap())
+  }
+
+  pub async fn has(&self, cid: &Cid) -> Result<bool, ApiError> {
+    Ok(self.has_strand(cid).await? || self.has_tixel(cid).await?)
   }
 
   pub async fn get_by_index(&self, strand_cid: &Cid, index: u64) -> Result<Arc<Tixel>, ApiError> {
@@ -205,7 +226,7 @@ impl D1Store {
   pub async fn put_strand(&self, strand: &Strand) -> Result<(), ApiError> {
     let query = query!(
       &self.0,
-      "INSERT INTO Strands (cid, data, spec, details)
+      "INSERT IGNORE INTO Strands (cid, data, spec, details)
       VALUES (?1, ?2, ?3, ?4);",
       strand.cid().to_bytes(),
       strand.bytes(),
@@ -219,7 +240,7 @@ impl D1Store {
   pub async fn put_tixel(&self, tixel: &Tixel) -> Result<(), ApiError> {
     let query = query!(
       &self.0,
-      "INSERT INTO Tixels (cid, data, strand, idx)
+      "INSERT IGNORE INTO Tixels (cid, data, strand, idx)
       VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4);",
       tixel.cid().to_bytes(),
       tixel.bytes(),
@@ -230,11 +251,12 @@ impl D1Store {
     Ok(())
   }
 
-  pub async fn put_many_tixels<T: IntoIterator<Item = Tixel>>(&self, tixels: T) -> Result<(), ApiError> {
-    let statements = tixels.into_iter().map(|tixel| {
+  pub async fn put_many_twines<T: IntoIterator<Item = Twine>>(&self, twines: T) -> Result<(), ApiError> {
+    let statements = twines.into_iter().map(|t| {
+      let tixel = t.tixel();
       query!(
         &self.0,
-        "INSERT INTO Tixels (cid, data, strand, idx)
+        "INSERT IGNORE INTO Tixels (cid, data, strand, idx)
         VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4);",
         tixel.cid().to_bytes(),
         tixel.bytes(),
@@ -247,5 +269,10 @@ impl D1Store {
     self.0.batch(statements).await?;
 
     Ok(())
+  }
+
+  pub async fn upcast(&self, tixel: Arc<Tixel>) -> Result<Twine, ApiError> {
+    let strand = self.get_strand(&tixel.strand_cid()).await?;
+    Ok(Twine::try_new_from_shared(strand, tixel)?)
   }
 }

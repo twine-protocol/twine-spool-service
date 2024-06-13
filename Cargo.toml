@@ -19,9 +19,19 @@ worker = { version = "0.3.0", features = ["d1"] }
 worker-macros = { version = "0.3.0" }
 console_error_panic_hook = { version = "0.1.1" }
 serde = "1.0"
+serde_bytes = "0.11"
+serde-email = "3.0"
+fvm_ipld_car = "0.7"
 futures = "0.3"
 twine = { path = "../twine-rs", features = ["build"] }
 thiserror = "1.0"
 
 [dependencies.ring]
 features = ["wasm32_unknown_unknown_js"]
+
+[dependencies.uuid]
+version = "1.8.0"
+features = [
+  "v7",
+  "serde"
+]
