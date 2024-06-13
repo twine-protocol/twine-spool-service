@@ -19,7 +19,7 @@ type Ctx = RouteContext<store::D1Store>;
 async fn list_strands(_req: Request, ctx: Ctx) -> Result<Response> {
   let strands = ctx.data.get_strands().await;
   match strands {
-    Ok(strands) => strand_collection_response(_req, strands),
+    Ok(strands) => strand_collection_response(_req, strands).await,
     Err(e) => e.to_response(),
   }
 }
@@ -54,10 +54,10 @@ async fn exec_query(req: Request, ctx: Ctx) -> Result<Response> {
           };
           match store.get_by_cid(&cid).await {
             Ok(result) => if result.is_strand() {
-              strand_collection_response(req, vec![result.unwrap_strand()])
+              strand_collection_response(req, vec![result.unwrap_strand()]).await
             } else {
               match store.upcast(result.unwrap_tixel()).await {
-                Ok(tw) => twine_response(req, tw),
+                Ok(tw) => twine_response(req, tw).await,
                 Err(e) => e.to_response(),
               }
             },
@@ -66,13 +66,13 @@ async fn exec_query(req: Request, ctx: Ctx) -> Result<Response> {
         },
         1 => {
           match store.twine_query(query).await {
-            Ok(result) => twine_response(req, result),
+            Ok(result) => twine_response(req, result).await,
             Err(e) => e.to_response(),
           }
         },
         2 => {
           match store.range_query(query).await {
-            Ok(result) => twine_collection_response(req, result),
+            Ok(result) => twine_collection_response(req, result).await,
             Err(e) => e.to_response(),
           }
         },
