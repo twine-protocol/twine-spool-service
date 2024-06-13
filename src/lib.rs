@@ -24,7 +24,7 @@ async fn list_strands(_req: Request, ctx: Ctx) -> Result<Response> {
   }
 }
 
-async fn exec_has(req: Request, ctx: Ctx) -> Result<Response> {
+async fn exec_has(_req: Request, ctx: Ctx) -> Result<Response> {
   let store = &ctx.data;
   match ctx.param("cid") {
     Some(cid) => {
@@ -33,11 +33,11 @@ async fn exec_has(req: Request, ctx: Ctx) -> Result<Response> {
         Err(_) => return Response::error("Bad Cid", 400),
       };
       match store.has(&cid).await {
-        Ok(true) => Response::ok("Has"),
-        Ok(false) => Response::error("Not found", 404),
+        Ok(true) => Response::empty(),
+        Ok(false) => Response::empty().map(|r| r.with_status(404)),
         Err(e) => e.to_response(),
       }
-    }
+    },
     None => Response::error("Missing cid", 400),
   }
 }
