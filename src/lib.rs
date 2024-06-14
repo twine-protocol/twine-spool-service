@@ -26,17 +26,32 @@ async fn list_strands(_req: Request, ctx: Ctx) -> Result<Response> {
 
 async fn exec_has(_req: Request, ctx: Ctx) -> Result<Response> {
   let store = &ctx.data;
-  match ctx.param("cid") {
-    Some(cid) => {
-      let cid = match cid.parse::<Cid>() {
-        Ok(cid) => cid,
-        Err(_) => return Response::error("Bad Cid", 400),
-      };
-      match store.has(&cid).await {
-        Ok(true) => Response::empty(),
-        Ok(false) => Response::empty().map(|r| r.with_status(404)),
-        Err(e) => e.to_response(),
+  match ctx.param("query") {
+    Some(query) => {
+      match query.match_indices(":").count() {
+        0 => {
+          let cid = match query.parse::<Cid>() {
+            Ok(cid) => cid,
+            Err(_) => return Response::error("Bad Cid", 400),
+          };
+          match store.has_cid(&cid).await {
+            Ok(true) => Response::empty(),
+            Ok(false) => Response::empty().map(|r| r.with_status(404)),
+            Err(e) => e.to_response(),
+          }
+        },
+        1 => {
+          match store.has(query).await {
+            Ok(true) => Response::empty(),
+            Ok(false) => Response::empty().map(|r| r.with_status(404)),
+            Err(e) => e.to_response(),
+          }
+        },
+        _ => {
+          Response::error("Invalid query", 400)
+        }
       }
+
     },
     None => Response::error("Missing cid", 400),
   }
@@ -214,7 +229,7 @@ async fn fetch(
     .get_async("/register/:receipt_id", check_registration)
     .get_async("/gen", test_gen)
     .get_async("/:query", exec_query)
-    .head_async("/:cid", exec_has)
+    .head_async("/:query", exec_has)
     .run(req, env)
     .await
 }

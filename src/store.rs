@@ -102,8 +102,49 @@ impl D1Store {
     Ok(result.unwrap())
   }
 
-  pub async fn has(&self, cid: &Cid) -> Result<bool, ApiError> {
+  pub async fn has_cid(&self, cid: &Cid) -> Result<bool, ApiError> {
     Ok(self.has_strand(cid).await? || self.has_tixel(cid).await?)
+  }
+
+  pub async fn has_index(&self, strand_cid: &Cid, index: u64) -> Result<bool, ApiError> {
+    let query = query!(
+      &self.0,
+      "SELECT EXISTS(SELECT 1 FROM Tixels
+      JOIN Strands ON Tixels.strand = Strands.id
+      WHERE Strands.cid = ?1
+      AND Tixels.idx = ?2);",
+      strand_cid.to_bytes(),
+      index
+    )?;
+    let result = query.first::<bool>(None).await?;
+    Ok(result.unwrap())
+  }
+
+  pub async fn has(&self, query: &str) -> Result<bool, ApiError> {
+    let q = Query::from_str(query)?;
+    match q {
+      Query::Stitch(stitch) => {
+        Ok(self.has_tixel(&stitch.tixel).await?)
+      },
+      Query::Index(strand_cid, index) => {
+        let index = if index >= 0 { index as u64 } else {
+          let latest = match self.latest_index(&strand_cid).await {
+            Ok(latest) => latest,
+            Err(ApiError::NotFound) => return Ok(false),
+            Err(e) => return Err(e),
+          };
+          latest + 1 + index as u64
+        };
+        Ok(self.has_index(&strand_cid, index).await?)
+      },
+      Query::Latest(strand_cid) => {
+        match self.latest_index(&strand_cid).await {
+          Ok(_) => Ok(true),
+          Err(ApiError::NotFound) => return Ok(false),
+          Err(e) => return Err(e),
+        }
+      },
+    }
   }
 
   pub async fn get_by_index(&self, strand_cid: &Cid, index: u64) -> Result<Arc<Tixel>, ApiError> {
