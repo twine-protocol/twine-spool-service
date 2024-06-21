@@ -107,12 +107,16 @@ async fn put_tixels(mut req: Request, ctx: Ctx) -> Result<Response> {
     return Response::error("Invalid content type", 400);
   }
   let bytes = req.bytes().await?;
-  // check the first to ensure the strand is allowed
-  let first: Tixel = match car::car_to_single_twine(bytes.as_ref()).await {
-    Ok(t) => t,
-    Err(e) => return e.to_response(),
+  // check to ensure the strand is allowed
+  let strand_cid = match ctx.param("strand_cid") {
+    Some(cid) => match cid.parse::<Cid>() {
+      Ok(cid) => cid,
+      Err(_) => return Response::error("Invalid strand cid", 400),
+    },
+    None => return Response::error("Missing strand cid", 400),
   };
-  let strand = match store.get_strand(&first.strand_cid()).await {
+
+  let strand = match store.get_strand(&strand_cid).await {
     Ok(s) => s,
     Err(ApiError::NotFound) => return Response::error("Strand not yet authorized", 401),
     Err(e) => return e.to_response(),
@@ -123,7 +127,7 @@ async fn put_tixels(mut req: Request, ctx: Ctx) -> Result<Response> {
     Err(e) => return e.to_response(),
   };
 
-  let twines = match tixels.into_iter()
+  let mut twines = match tixels.into_iter()
     .map(|t| Twine::try_new_from_shared(strand.clone(), Arc::new(t)))
     .collect::<std::result::Result<Vec<Twine>, _>>()
   {
@@ -131,7 +135,10 @@ async fn put_tixels(mut req: Request, ctx: Ctx) -> Result<Response> {
     Err(e) => return ApiError::from(e).to_response(),
   };
 
-  match store.put_many_twines(twines).await {
+  // sort the twines by their index
+  twines.sort_by(|a, b| a.index().cmp(&b.index()));
+
+  match store.put_many_twines(&strand_cid, twines).await {
     Ok(_) => {},
     Err(e) => return e.to_response(),
   };
@@ -151,7 +158,7 @@ async fn test_gen(_req: Request, ctx: Ctx) -> Result<Response> {
 
   let mut twines = vec![];
 
-  let mut prev = builder.build_first(strand)
+  let mut prev = builder.build_first(strand.clone())
     .done()
     .unwrap();
 
@@ -170,7 +177,7 @@ async fn test_gen(_req: Request, ctx: Ctx) -> Result<Response> {
     Ok(_) => {},
     Err(e) => return e.to_response(),
   };
-  match store.put_many_twines(twines).await {
+  match store.put_many_twines(&strand.cid(), twines).await {
     Ok(_) => {},
     Err(e) => return e.to_response(),
   };
@@ -182,6 +189,17 @@ async fn register_strand(mut req: Request, ctx: Ctx) -> Result<Response> {
   let store = &ctx.data;
   let db = &store.0;
   let reg = req.json::<RegistrationRequest>().await?;
+
+  // check if we're accepting all
+  if ctx.var("ACCEPT_ALL_STRANDS")?.to_string() == "true" {
+    let record = RegistrationRecord::new_preapproved(reg.email, reg.strand.cid());
+    record.save(db).await?;
+    return match store.put_strand(&reg.strand).await {
+      Ok(_) => Response::from_json(&record),
+      Err(e) => e.to_response(),
+    };
+  }
+
   // check if it's preapproved
   if let Some(existing) = RegistrationRecord::check_approved(db, &reg.strand).await? {
     // it's preapproved so we can save the strand
@@ -222,14 +240,21 @@ async fn fetch(
 
   let store = store::D1Store(env.d1("DB")?);
 
-  Router::with_data(store)
+  let response = Router::with_data(store)
     .get_async("/", list_strands)
-    .put_async("/", put_tixels)
+    .put_async("/:strand_cid", put_tixels)
     .post_async("/register", register_strand)
     .get_async("/register/:receipt_id", check_registration)
     .get_async("/gen", test_gen)
     .get_async("/:query", exec_query)
     .head_async("/:query", exec_has)
+    .head("/", |_, _| Response::empty())
     .run(req, env)
-    .await
+    .await;
+
+  response.map(|mut r| {
+    let _ = r.headers_mut()
+      .set("X-Spool-Version", "2");
+    r
+  })
 }

@@ -46,7 +46,7 @@ impl RegistrationRecord {
     }
   }
 
-  pub fn new_preauthorized(email: Email, strand_cid: Cid) -> Self {
+  pub fn new_preapproved(email: Email, strand_cid: Cid) -> Self {
     RegistrationRecord {
       uuid: Uuid::now_v7(),
       email,

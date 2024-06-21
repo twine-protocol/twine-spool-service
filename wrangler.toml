@@ -10,3 +10,6 @@ command = "cargo install -q worker-build && worker-build --release"
 binding = "DB" # i.e. available in your Worker on env.DB
 database_name = "spool-prod"
 database_id = "9f6220b6-25f3-4bc0-979a-c5803785ef3b"
+
+[env.dev.vars]
+ACCEPT_ALL_STRANDS = "true"

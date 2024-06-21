@@ -91,15 +91,23 @@ impl D1Store {
   }
 
   pub async fn has_strand(&self, cid: &Cid) -> Result<bool, ApiError> {
-    let query = query!(&self.0, "SELECT EXISTS(SELECT 1 FROM Strands WHERE cid = ?1)", cid.to_bytes())?;
-    let result = query.first::<bool>(None).await?;
-    Ok(result.unwrap())
+    let query = query!(
+      &self.0,
+      "SELECT TRUE FROM Strands WHERE cid = ?1",
+      cid.to_bytes()
+    )?;
+    let result = query.first::<u8>(Some("TRUE")).await?;
+    Ok(result.is_some())
   }
 
   pub async fn has_tixel(&self, cid: &Cid) -> Result<bool, ApiError> {
-    let query = query!(&self.0, "SELECT EXISTS(SELECT 1 FROM Tixels WHERE cid = ?1)", cid.to_bytes())?;
-    let result = query.first::<bool>(None).await?;
-    Ok(result.unwrap())
+    let query = query!(
+      &self.0,
+      "SELECT TRUE FROM Tixels WHERE cid = ?1",
+      cid.to_bytes()
+    )?;
+    let result = query.first::<u8>(Some("TRUE")).await?;
+    Ok(result.is_some())
   }
 
   pub async fn has_cid(&self, cid: &Cid) -> Result<bool, ApiError> {
@@ -109,15 +117,15 @@ impl D1Store {
   pub async fn has_index(&self, strand_cid: &Cid, index: u64) -> Result<bool, ApiError> {
     let query = query!(
       &self.0,
-      "SELECT EXISTS(SELECT 1 FROM Tixels
+      "SELECT TRUE FROM Tixels
       JOIN Strands ON Tixels.strand = Strands.id
       WHERE Strands.cid = ?1
-      AND Tixels.idx = ?2);",
+      AND Tixels.idx = ?2;",
       strand_cid.to_bytes(),
       index
     )?;
-    let result = query.first::<bool>(None).await?;
-    Ok(result.unwrap())
+    let result = query.first::<u8>(Some("TRUE")).await?;
+    Ok(result.is_some())
   }
 
   pub async fn has(&self, query: &str) -> Result<bool, ApiError> {
@@ -200,6 +208,11 @@ impl D1Store {
     let q = RangeQuery::from_str(query)?;
     let latest = self.latest_index(q.strand_cid()).await?;
     let range = q.to_absolute(latest);
+
+    if !self.has_index(q.strand_cid(), range.upper()).await? {
+      return Err(ApiError::NotFound);
+    }
+
     let increasing = range.is_increasing();
     let query = query!(
       &self.0,
@@ -279,10 +292,17 @@ impl D1Store {
   }
 
   pub async fn put_tixel(&self, tixel: &Tixel) -> Result<(), ApiError> {
+    // we only insert the tixel if we have the previous index already
     let query = query!(
       &self.0,
-      "INSERT IGNORE INTO Tixels (cid, data, strand, idx)
-      VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4);",
+      format!(
+        "INSERT IGNORE INTO Tixels (cid, data, strand, idx)
+        VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4)
+        {};",
+        if tixel.index() == 0 { "" } else { "
+          WHERE EXISTS(SELECT TRUE FROM Tixels WHERE strand = (SELECT id FROM Strands WHERE cid = ?3) AND idx = ?4 - 1)"
+        }
+      ),
       tixel.cid().to_bytes(),
       tixel.bytes(),
       tixel.strand_cid(),
@@ -292,18 +312,46 @@ impl D1Store {
     Ok(())
   }
 
-  pub async fn put_many_twines<T: IntoIterator<Item = Twine>>(&self, twines: T) -> Result<(), ApiError> {
-    let statements = twines.into_iter().map(|t| {
+  pub async fn put_many_twines<T: IntoIterator<Item = Twine>>(&self, strand_cid: &Cid, twines: T) -> Result<(), ApiError> {
+    let statements = twines.into_iter()
+    .scan(None, |prev, twine| {
+      // This checks to see if the twine is contiguous with the previous one
+      let cur_index = twine.index();
+      let ret = match prev {
+        Some(prev_index) => {
+          if twine.index() == *prev_index + 1 {
+            Some((false, twine))
+          } else {
+            Some((true, twine))
+          }
+        },
+        None => {
+          Some((cur_index != 0, twine))
+        }
+      };
+      *prev = Some(cur_index);
+      ret
+    })
+    .map(|(needs_where, t)| {
       let tixel = t.tixel();
-      query!(
+      if tixel.strand_cid() != *strand_cid {
+        return Err(ApiError::BadRequestData("Twine does not belong to specified strand".to_string()));
+      }
+      Ok(query!(
         &self.0,
-        "INSERT IGNORE INTO Tixels (cid, data, strand, idx)
-        VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4);",
+        format!(
+          "INSERT IGNORE INTO Tixels (cid, data, strand, idx)
+          VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4)
+          {};",
+          if needs_where {
+            "WHERE EXISTS(SELECT TRUE FROM Tixels WHERE strand = (SELECT id FROM Strands WHERE cid = ?3) AND idx = ?4 - 1)"
+          } else { "" }
+        ),
         tixel.cid().to_bytes(),
         tixel.bytes(),
-        tixel.strand_cid(),
+        strand_cid,
         tixel.index()
-      )
+      )?)
     })
     .collect::<Result<Vec<_>, _>>()?;
 

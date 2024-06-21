@@ -1738,6 +1738,7 @@ dependencies = [
  "elliptic-curve",
  "futures",
  "ipld-core",
+ "log",
  "multihash 0.19.1",
  "multihash-codetable",
  "multihash-derive 0.9.0",
