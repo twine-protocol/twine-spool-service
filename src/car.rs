@@ -1,6 +1,6 @@
 use futures::AsyncRead;
 use fvm_ipld_car::CarReader;
-use store::ApiError;
+use crate::ApiError;
 
 use super::*;
 

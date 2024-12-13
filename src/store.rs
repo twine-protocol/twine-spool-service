@@ -1,36 +1,44 @@
 use futures::future::join;
 use twine::{prelude::*, twine_core::ipld_core::codec::Codec};
 use std::{str::FromStr, sync::Arc};
-use worker::{query, D1Database};
+use worker::{console_log, query, D1Database, Range};
 use twine::twine_core::serde_ipld_dagjson::codec::DagJsonCodec;
+use crate::errors::ApiError;
 
-#[derive(Debug, thiserror::Error)]
-pub enum ApiError {
-  #[error("Corrupted cid: {0}")]
-  Corrupted(#[from] twine::twine_core::cid::Error),
-  #[error("Bad Data: {0}")]
-  BadRequestData(String),
-  #[error("Server error: {0}")]
-  ServerError(#[from] worker::Error),
-  #[error("Verification error: {0}")]
-  VerificationError(#[from] VerificationError),
-  #[error("Invalid query: {0}")]
-  InvalidQuery(#[from] ConversionError),
-  #[error("Not found")]
-  NotFound,
+#[derive(Debug, Clone)]
+pub enum GeneralQuery {
+  Cid(Cid),
+  Query(Query),
+  Range(RangeQuery),
 }
 
-impl ApiError {
-  pub fn to_response(&self) -> Result<worker::Response, worker::Error> {
-    match self {
-      ApiError::ServerError(e) => worker::Response::error(e.to_string(), 500),
-      ApiError::VerificationError(e) => worker::Response::error(e.to_string(), 400),
-      ApiError::InvalidQuery(e) => worker::Response::error(e.to_string(), 400),
-      ApiError::NotFound => worker::Response::error("Not found", 404),
-      ApiError::Corrupted(e) => worker::Response::error(e.to_string(), 500),
-      ApiError::BadRequestData(e) => worker::Response::error(e.to_string(), 400),
+impl FromStr for GeneralQuery {
+  type Err = ApiError;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s.bytes().filter(|c| *c == b':').count() {
+      0 => {
+        let cid = Cid::try_from(s).map_err(|e| ApiError::InvalidQuery(ConversionError::InvalidCid(e)))?;
+        Ok(GeneralQuery::Cid(cid))
+      },
+      1 => {
+        let query = Query::from_str(s)?;
+        Ok(GeneralQuery::Query(query))
+      },
+      2 => {
+        let range = RangeQuery::from_str(s)?;
+        Ok(GeneralQuery::Range(range))
+      },
+      _ => Err(ApiError::InvalidQuery(ConversionError::InvalidFormat(s.to_string()))),
     }
   }
+}
+
+#[derive(Debug, Clone)]
+pub enum QueryResult {
+  Strand(Arc<Strand>),
+  Twine(Twine),
+  List(Vec<Twine>),
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -51,11 +59,14 @@ impl BlockRecord {
   }
 }
 
-pub struct D1Store(pub D1Database);
+pub struct D1Store {
+  pub db: D1Database,
+  pub max_batch_size: u64,
+}
 
 impl D1Store {
   pub async fn get_strands(&self) -> Result<Vec<Arc<Strand>>, ApiError> {
-    let query = query!(&self.0, "SELECT cid, data FROM Strands");
+    let query = query!(&self.db, "SELECT cid, data FROM Strands");
     let result = query.all().await?;
     let results = result.results::<BlockRecord>()?;
     let strands = results.into_iter().map(|block| {
@@ -65,7 +76,7 @@ impl D1Store {
   }
 
   pub async fn get_strand(&self, cid: &Cid) -> Result<Arc<Strand>, ApiError> {
-    let query = query!(&self.0, "SELECT data FROM Strands WHERE cid = ?1", cid.to_bytes())?;
+    let query = query!(&self.db, "SELECT data FROM Strands WHERE cid = ?1", cid.to_bytes())?;
     let result = query.first::<Vec<u8>>(Some("data")).await?;
     let bytes = result.ok_or(ApiError::NotFound)?;
     let strand = Strand::from_block(*cid, bytes)?;
@@ -73,7 +84,7 @@ impl D1Store {
   }
 
   pub async fn get_tixel(&self, cid: &Cid) -> Result<Arc<Tixel>, ApiError> {
-    let query = query!(&self.0, "SELECT data FROM Tixels WHERE cid = ?1", cid.to_bytes())?;
+    let query = query!(&self.db, "SELECT data FROM Tixels WHERE cid = ?1", cid.to_bytes())?;
     let result = query.first::<Vec<u8>>(Some("data")).await?;
     let bytes = result.ok_or(ApiError::NotFound)?;
     Ok(Arc::new(Tixel::from_block(*cid, bytes)?))
@@ -92,7 +103,7 @@ impl D1Store {
 
   pub async fn has_strand(&self, cid: &Cid) -> Result<bool, ApiError> {
     let query = query!(
-      &self.0,
+      &self.db,
       "SELECT TRUE FROM Strands WHERE cid = ?1",
       cid.to_bytes()
     )?;
@@ -102,7 +113,7 @@ impl D1Store {
 
   pub async fn has_tixel(&self, cid: &Cid) -> Result<bool, ApiError> {
     let query = query!(
-      &self.0,
+      &self.db,
       "SELECT TRUE FROM Tixels WHERE cid = ?1",
       cid.to_bytes()
     )?;
@@ -116,7 +127,7 @@ impl D1Store {
 
   pub async fn has_index(&self, strand_cid: &Cid, index: u64) -> Result<bool, ApiError> {
     let query = query!(
-      &self.0,
+      &self.db,
       "SELECT TRUE FROM Tixels
       JOIN Strands ON Tixels.strand = Strands.id
       WHERE Strands.cid = ?1
@@ -157,7 +168,7 @@ impl D1Store {
 
   pub async fn get_by_index(&self, strand_cid: &Cid, index: u64) -> Result<Arc<Tixel>, ApiError> {
     let query = query!(
-      &self.0,
+      &self.db,
       "SELECT Tixels.cid, Tixels.data
       FROM Tixels
       JOIN Strands ON Tixels.strand = Strands.id
@@ -173,7 +184,7 @@ impl D1Store {
 
   pub async fn latest_index(&self, strand_cid: &Cid) -> Result<u64, ApiError> {
     let query = query!(
-      &self.0,
+      &self.db,
       "SELECT Tixels.idx
       FROM Tixels
       JOIN Strands ON Tixels.strand = Strands.id
@@ -189,7 +200,7 @@ impl D1Store {
 
   pub async fn latest(&self, strand_cid: &Cid) -> Result<Arc<Tixel>, ApiError> {
     let query = query!(
-      &self.0,
+      &self.db,
       "SELECT Tixels.cid, Tixels.data
       FROM Tixels
       JOIN Strands ON Tixels.strand = Strands.id
@@ -204,10 +215,45 @@ impl D1Store {
     Ok(Arc::new(block.into_tixel()?))
   }
 
+  pub async fn exec_query(&self, query: &str) -> Result<QueryResult, ApiError> {
+    match GeneralQuery::from_str(query)? {
+      GeneralQuery::Cid(cid) => {
+        match self.get_by_cid(&cid).await {
+          Ok(result) => {
+            if result.is_strand() {
+              Ok(QueryResult::Strand(result.unwrap_strand()))
+            } else {
+              let twine = self.upcast(result.unwrap_tixel()).await?;
+              Ok(QueryResult::Twine(twine))
+            }
+          },
+          Err(ApiError::NotFound) => Err(ApiError::NotFound),
+          Err(e) => Err(e),
+        }
+      },
+      GeneralQuery::Query(_) => {
+        self.twine_query(query).await.map(QueryResult::Twine)
+      },
+      GeneralQuery::Range(_) => {
+        self.range_query(query).await.map(QueryResult::List)
+      },
+    }
+  }
+
   pub async fn range_query(&self, query: &str) -> Result<Vec<Twine>, ApiError> {
     let q = RangeQuery::from_str(query)?;
     let latest = self.latest_index(q.strand_cid()).await?;
     let range = q.to_absolute(latest);
+
+    if range.is_none() {
+      return Ok(vec![]);
+    }
+
+    let range = range.unwrap();
+
+    if range.len() > self.max_batch_size {
+      return Err(ApiError::BadRequestData(format!("Batch size exceeds limit of {}", self.max_batch_size)));
+    }
 
     if !self.has_index(q.strand_cid(), range.upper()).await? {
       return Err(ApiError::NotFound);
@@ -215,7 +261,7 @@ impl D1Store {
 
     let increasing = range.is_increasing();
     let query = query!(
-      &self.0,
+      &self.db,
       format!("SELECT Tixels.idx, Tixels.cid, Tixels.data
       FROM Tixels
       JOIN Strands ON Tixels.strand = Strands.id
@@ -279,8 +325,8 @@ impl D1Store {
 
   pub async fn put_strand(&self, strand: &Strand) -> Result<(), ApiError> {
     let query = query!(
-      &self.0,
-      "INSERT IGNORE INTO Strands (cid, data, spec, details)
+      &self.db,
+      "INSERT OR IGNORE INTO Strands (cid, data, spec, details)
       VALUES (?1, ?2, ?3, ?4);",
       strand.cid().to_bytes(),
       strand.bytes(),
@@ -294,9 +340,9 @@ impl D1Store {
   pub async fn put_tixel(&self, tixel: &Tixel) -> Result<(), ApiError> {
     // we only insert the tixel if we have the previous index already
     let query = query!(
-      &self.0,
+      &self.db,
       format!(
-        "INSERT IGNORE INTO Tixels (cid, data, strand, idx)
+        "INSERT OR IGNORE INTO Tixels (cid, data, strand, idx)
         VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4)
         {};",
         if tixel.index() == 0 { "" } else { "
@@ -338,13 +384,17 @@ impl D1Store {
         return Err(ApiError::BadRequestData("Twine does not belong to specified strand".to_string()));
       }
       Ok(query!(
-        &self.0,
+        &self.db,
         format!(
-          "INSERT IGNORE INTO Tixels (cid, data, strand, idx)
-          VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4)
+          "INSERT OR IGNORE INTO Tixels (cid, data, strand, idx)
+          SELECT ?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4
           {};",
           if needs_where {
-            "WHERE EXISTS(SELECT TRUE FROM Tixels WHERE strand = (SELECT id FROM Strands WHERE cid = ?3) AND idx = ?4 - 1)"
+            "WHERE EXISTS(
+              SELECT 1 FROM Tixels
+              WHERE strand = (SELECT id FROM Strands WHERE cid = ?3)
+              AND (idx = ?4 - 1)
+            )"
           } else { "" }
         ),
         tixel.cid().to_bytes(),
@@ -355,7 +405,7 @@ impl D1Store {
     })
     .collect::<Result<Vec<_>, _>>()?;
 
-    self.0.batch(statements).await?;
+    self.db.batch(statements).await?;
 
     Ok(())
   }

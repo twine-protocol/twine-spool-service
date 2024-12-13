@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use car::car_to_twines;
-use store::ApiError;
 use uuid::Uuid;
 use worker::*;
 use twine::{prelude::*, twine_builder::RingSigner, twine_core::ipld_core::ipld};
 
+mod errors;
+use errors::*;
 mod store;
 mod formatting;
 use formatting::*;
@@ -61,41 +62,41 @@ async fn exec_query(req: Request, ctx: Ctx) -> Result<Response> {
   let store = &ctx.data;
   match ctx.param("query") {
     Some(query) => {
-      match query.match_indices(":").count() {
-        0 => {
-          let cid = match query.parse::<Cid>() {
-            Ok(cid) => cid,
-            Err(_) => return Response::error("Bad Cid", 400),
-          };
-          match store.get_by_cid(&cid).await {
-            Ok(result) => if result.is_strand() {
-              strand_collection_response(req, vec![result.unwrap_strand()]).await
-            } else {
-              match store.upcast(result.unwrap_tixel()).await {
-                Ok(tw) => twine_response(req, tw).await,
-                Err(e) => e.to_response(),
-              }
-            },
-            Err(e) => e.to_response(),
-          }
-        },
-        1 => {
-          match store.twine_query(query).await {
-            Ok(result) => twine_response(req, result).await,
-            Err(e) => e.to_response(),
-          }
-        },
-        2 => {
-          match store.range_query(query).await {
-            Ok(result) => twine_collection_response(req, result).await,
-            Err(e) => e.to_response(),
-          }
-        },
-        _ => Response::error("Invalid query", 400),
+      let result = store.exec_query(query).await;
+      match result {
+        Ok(result) => query_response(req, result).await,
+        Err(e) => e.to_response(),
       }
-
-    }
+    },
     None => Response::error("Missing query", 400),
+  }
+}
+
+async fn put_strands(mut req: Request, ctx: Ctx) -> Result<Response> {
+  let store = &ctx.data;
+  // check that the request is either content-type application/octet-stream or application/vnd.ipld.car
+  let content_type = req.headers().get("content-type")?.unwrap_or_default();
+  if content_type != "application/octet-stream" && content_type != "application/vnd.ipld.car" {
+    return Response::error("Invalid content type", 400);
+  }
+  let bytes = req.bytes().await?;
+  let strands: Vec<Strand> = match car_to_twines(bytes.as_ref()).await {
+    Ok(strands) => strands,
+    Err(e) => return e.to_response(),
+  };
+
+  use futures::stream::StreamExt;
+  use futures::stream::TryStreamExt;
+  match futures::stream::iter(strands)
+    .inspect(|strand| console_log!("saving strand {}", strand.cid()))
+    .map(|strand| async move {
+      store.put_strand(&strand).await
+    })
+    .buffer_unordered(10)
+    .try_collect::<Vec<()>>().await
+  {
+    Ok(_) => Response::ok("Put strands"),
+    Err(e) => ApiError::from(e).to_response(),
   }
 }
 
@@ -187,23 +188,36 @@ async fn test_gen(_req: Request, ctx: Ctx) -> Result<Response> {
 
 async fn register_strand(mut req: Request, ctx: Ctx) -> Result<Response> {
   let store = &ctx.data;
-  let db = &store.0;
-  let reg = req.json::<RegistrationRequest>().await?;
+  let db = &store.db;
+  let reg = match req.json::<RegistrationRequest>().await {
+    Ok(reg) => reg,
+    Err(e) => {
+      console_debug!("{:?}", e);
+      return Response::error(e.to_string(), 400);
+    },
+  };
+
+  let strand = reg.strand.clone().unpack();
+
+  // check if the strand is already registered
+  if let Ok(true) = store.has_cid(&strand.cid()).await {
+    return Response::error("Strand already registered", 409);
+  }
 
   // check if we're accepting all
-  if ctx.var("ACCEPT_ALL_STRANDS")?.to_string() == "true" {
-    let record = RegistrationRecord::new_preapproved(reg.email, reg.strand.cid());
+  if ctx.var("ACCEPT_ALL_STRANDS").map(|s| s.to_string()).unwrap_or("false".to_string()) == "true" {
+    let record = RegistrationRecord::new_preapproved(reg.email, strand.cid());
     record.save(db).await?;
-    return match store.put_strand(&reg.strand).await {
+    return match store.put_strand(&strand).await {
       Ok(_) => Response::from_json(&record),
       Err(e) => e.to_response(),
     };
   }
 
   // check if it's preapproved
-  if let Some(existing) = RegistrationRecord::check_approved(db, &reg.strand).await? {
+  if let Some(existing) = RegistrationRecord::check_approved(db, &strand).await? {
     // it's preapproved so we can save the strand
-    match store.put_strand(&reg.strand).await {
+    match store.put_strand(&strand).await {
       Ok(_) => Response::from_json(&existing),
       Err(e) => e.to_response(),
     }
@@ -223,11 +237,28 @@ async fn check_registration(_req: Request, ctx: Ctx) -> Result<Response> {
     None => return Response::error("Missing receipt_id", 400),
   };
 
-  let db = &ctx.data.0;
+  let db = &ctx.data.db;
   match RegistrationRecord::fetch(db, uuid).await? {
     Some(record) => Response::from_json(&record),
     None => Response::error("Not found", 404),
   }
+}
+
+// only check POST and PUT requests
+async fn check_auth(req: &Request, env: &Env) -> std::result::Result<(), ApiError> {
+  if req.method() == Method::Get || req.method() == Method::Head {
+    return Ok(());
+  }
+  let auth = req.headers().get("authorization")?.unwrap_or_default();
+  if !auth.starts_with("ApiKey ") {
+    return Err(ApiError::Unauthorized);
+  }
+  let api_key = auth.trim_start_matches("ApiKey ");
+  let expected_key = env.var("API_KEY").map(|s| s.to_string()).unwrap_or("".to_string());
+  if api_key != expected_key {
+    return Err(ApiError::Unauthorized);
+  }
+  Ok(())
 }
 
 #[event(fetch)]
@@ -238,13 +269,21 @@ async fn fetch(
 ) -> Result<Response> {
   console_error_panic_hook::set_once();
 
-  let store = store::D1Store(env.d1("DB")?);
+  if let Err(e) = check_auth(&req, &env).await {
+    return e.to_response();
+  }
+
+  let store = store::D1Store {
+    db: env.d1("DB")?,
+    max_batch_size: env.var("MAX_BATCH_SIZE").map_or(Ok(1000), |s| s.to_string().parse()).unwrap_or(1000),
+  };
 
   let response = Router::with_data(store)
-    .get_async("/", list_strands)
-    .put_async("/:strand_cid", put_tixels)
     .post_async("/register", register_strand)
     .get_async("/register/:receipt_id", check_registration)
+    .get_async("/", list_strands)
+    .put_async("/", put_strands)
+    .put_async("/:strand_cid", put_tixels)
     .get_async("/gen", test_gen)
     .get_async("/:query", exec_query)
     .head_async("/:query", exec_has)

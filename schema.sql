@@ -1,7 +1,7 @@
 -- Command to run: wrangler d1 execute spool-prod --local --file=./schema.sql
 -- If starting fresh...
--- DROP TABLE IF EXISTS Strands;
 -- DROP TABLE IF EXISTS Tixels;
+-- DROP TABLE IF EXISTS Strands;
 -- DROP TABLE IF EXISTS Registrations;
 
 CREATE TABLE IF NOT EXISTS Strands (

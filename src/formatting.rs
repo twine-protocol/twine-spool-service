@@ -1,31 +1,29 @@
 use super::*;
-use std::sync::Arc;
+use std::{sync::Arc, vec};
 use serde::{Deserialize, Serialize};
-use twine::twine_core::car::to_car_stream;
+use store::QueryResult;
+use twine::twine_core::{car::to_car_stream, twine::Tagged};
 use futures::{stream::iter, StreamExt};
 
-#[derive(Serialize)]
-pub struct TwineWrapper {
-  cid: Cid,
-  data: AnyTwine,
-}
-
-impl From<AnyTwine> for TwineWrapper {
-  fn from(twine: AnyTwine) -> Self {
-    let cid = twine.cid().clone();
-    TwineWrapper { cid, data: twine }
-  }
-}
+type TwineWrapper = Tagged<AnyTwine>;
 
 #[derive(Serialize)]
 pub struct ResponseData {
   #[serde(with = "crate::dag_json")]
   items: Vec<TwineWrapper>,
   #[serde(skip_serializing_if = "Option::is_none", with = "crate::dag_json")]
-  strand: Option<Strand>,
+  strand: Option<Tagged<Strand>>,
 }
 
 impl ResponseData {
+  pub fn from_query_result(result: QueryResult) -> Self {
+    match result {
+      QueryResult::Strand(s) => ResponseData::from_twine(s),
+      QueryResult::Twine(t) => ResponseData::from_twine(t),
+      QueryResult::List(l) => ResponseData::from_collection(l),
+    }
+  }
+
   pub fn from_collection<T: Into<AnyTwine>>(items: Vec<T>) -> Self {
     let items = items.into_iter().map(|t| TwineWrapper::from(t.into())).collect();
     ResponseData {
@@ -43,7 +41,7 @@ impl ResponseData {
   }
 
   pub fn with_strand(&mut self, strand: Strand) -> &mut Self {
-    self.strand = Some(strand);
+    self.strand = Some(strand.into());
     self
   }
 }
@@ -57,6 +55,16 @@ pub async fn car_response(items: Vec<AnyTwine>) -> Result<Response> {
   let carstream = to_car_stream(iter(items), vec![Cid::default()]);
   let car = carstream.concat().await;
   Response::from_bytes(car)
+}
+
+pub async fn strand_response(req: Request, result: Arc<Strand>) -> Result<Response> {
+  let accepts = req.headers().get("accept")?.unwrap_or_default();
+  if accepts == "application/octet-stream" || accepts == "application/vnd.ipld.car" {
+    let blocks: Vec<AnyTwine> = vec![result.into()];
+    return car_response(blocks).await;
+  }
+  let res = ResponseData::from_twine(result);
+  Response::from_json(&res)
 }
 
 pub async fn twine_response(req: Request, result: Twine) -> Result<Response> {
@@ -98,6 +106,14 @@ pub async fn twine_collection_response(req: Request, results: Vec<Twine>) -> Res
     res.with_strand(strand.unwrap());
   }
   Response::from_json(&res)
+}
+
+pub async fn query_response(req: Request, result: QueryResult) -> Result<Response> {
+  match result {
+    QueryResult::Strand(s) => strand_response(req, s).await,
+    QueryResult::Twine(t) => twine_response(req, t).await,
+    QueryResult::List(l) => twine_collection_response(req, l).await,
+  }
 }
 
 pub async fn strand_collection_response(req: Request, results: Vec<Arc<Strand>>) -> Result<Response> {

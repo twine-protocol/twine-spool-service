@@ -1,18 +1,19 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
+use twine::twine_core::twine::Tagged;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct RegistrationRequest {
   pub email: Email,
   #[serde(with = "crate::dag_json")]
-  pub strand: Strand,
+  pub strand: Tagged<Strand>,
 }
 
 impl From<RegistrationRequest> for RegistrationRecord {
   fn from(req: RegistrationRequest) -> Self {
-    RegistrationRecord::new(req.email, req.strand)
+    RegistrationRecord::new(req.email, req.strand.unpack())
   }
 }
 
@@ -38,7 +39,7 @@ pub struct RegistrationRecord {
 impl RegistrationRecord {
   pub fn new(email: Email, strand: Strand) -> Self {
     RegistrationRecord {
-      uuid: Uuid::now_v7(),
+      uuid: Uuid::new_v4(),
       email,
       strand_cid: strand.cid().to_bytes(),
       strand: strand.bytes().to_vec(),
@@ -48,7 +49,7 @@ impl RegistrationRecord {
 
   pub fn new_preapproved(email: Email, strand_cid: Cid) -> Self {
     RegistrationRecord {
-      uuid: Uuid::now_v7(),
+      uuid: Uuid::new_v4(),
       email,
       strand_cid: strand_cid.to_bytes(),
       strand: Vec::new(),

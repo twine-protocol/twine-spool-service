@@ -11,5 +11,12 @@ binding = "DB" # i.e. available in your Worker on env.DB
 database_name = "spool-prod"
 database_id = "9f6220b6-25f3-4bc0-979a-c5803785ef3b"
 
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "spool-dev"
+database_id = "31c8b3c3-e3b8-4037-86fd-ea73357971a6"
+
 [env.dev.vars]
 ACCEPT_ALL_STRANDS = "true"
+MAX_BATCH_SIZE = "10000"
+API_KEY = "dev"
