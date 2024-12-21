@@ -12,7 +12,7 @@ database_name = "spool-prod"
 database_id = "9f6220b6-25f3-4bc0-979a-c5803785ef3b"
 
 [triggers]
-crons = ["* * * * *"]
+crons = ["*/5 * * * *"]
 
 [[env.dev.d1_databases]]
 binding = "DB"
