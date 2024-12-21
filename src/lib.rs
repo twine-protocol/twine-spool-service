@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use car::car_to_twines;
+use futures::TryStreamExt;
 use uuid::Uuid;
 use worker::*;
 use twine::{prelude::*, twine_builder::RingSigner, twine_core::ipld_core::ipld};
@@ -261,6 +262,19 @@ async fn check_auth(req: &Request, env: &Env) -> std::result::Result<(), ApiErro
   Ok(())
 }
 
+async fn test_retrieve(req: Request, _ctx: Ctx) -> Result<Response> {
+  use twine::twine_http_store::reqwest;
+  let cfg = twine::twine_http_store::v1::HttpStoreOptions::default()
+    .url("https://random.colorado.edu/api");
+  let resolver = twine::twine_http_store::v1::HttpStore::new(reqwest::Client::new(), cfg);
+
+  let strands: Vec<Arc<Strand>> = resolver.strands().await
+    .unwrap()
+    .try_collect().await.unwrap();
+
+  strand_collection_response(req, strands).await
+}
+
 #[event(fetch)]
 async fn fetch(
   req: Request,
@@ -287,6 +301,7 @@ async fn fetch(
     .get_async("/gen", test_gen)
     .get_async("/:query", exec_query)
     .head_async("/:query", exec_has)
+    .get_async("/test", test_retrieve)
     .head("/", |_, _| Response::empty())
     .run(req, env)
     .await;
@@ -296,4 +311,15 @@ async fn fetch(
       .set("X-Spool-Version", "2");
     r
   })
+}
+
+mod randomness_test;
+use randomness_test::*;
+
+#[event(scheduled)]
+pub async fn scheduled(_e: ScheduledEvent, env: Env, _: ScheduleContext) {
+  match handle_randomness_pulse(env).await {
+    Ok(t) => console_log!("Randomness pulse released: {}", t.cid()),
+    Err(e) => console_error!("Error handling randomness pulse: {:?}", e),
+  };
 }

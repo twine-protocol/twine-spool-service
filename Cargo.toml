@@ -23,8 +23,10 @@ serde_bytes = "0.11"
 serde-email = "3.1"
 fvm_ipld_car = "0.8"
 futures = "0.3"
-twine = { path = "../twine-rs", features = ["build", "sha3", "blake2b", "blake3"] }
-thiserror = "2.0"
+twine = { path = "../twine-rs", features = ["build", "http", "sha3", "blake2b", "blake3"] }
+thiserror = "2.0.8"
+rand = "0.8"
+chrono = "0.4"
 
 [dependencies.ring]
 features = ["wasm32_unknown_unknown_js"]

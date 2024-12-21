@@ -343,10 +343,14 @@ impl D1Store {
       &self.db,
       format!(
         "INSERT OR IGNORE INTO Tixels (cid, data, strand, idx)
-        VALUES (?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4)
+        SELECT ?1, ?2, (SELECT id FROM Strands WHERE cid = ?3), ?4
         {};",
-        if tixel.index() == 0 { "" } else { "
-          WHERE EXISTS(SELECT TRUE FROM Tixels WHERE strand = (SELECT id FROM Strands WHERE cid = ?3) AND idx = ?4 - 1)"
+        if tixel.index() == 0 { "" } else {
+          "WHERE EXISTS(
+            SELECT 1 FROM Tixels
+            WHERE strand = (SELECT id FROM Strands WHERE cid = ?3)
+            AND (idx = ?4 - 1)
+          )"
         }
       ),
       tixel.cid().to_bytes(),
