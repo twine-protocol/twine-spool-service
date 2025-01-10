@@ -5,7 +5,7 @@
 Setup db locally:
 
 ```sh
-wrangler d1 execute spool-dev --local --file=./schema.sql
+wrangler d1 execute spool-dev -e dev --local --file=./schema.sql
 ```
 
 Run dev:

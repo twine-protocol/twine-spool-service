@@ -24,35 +24,58 @@ pub enum RegistrationStatus {
   Rejected,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RegistrationRecord {
-  #[serde(with = "uuid::serde::simple")]
-  pub uuid: Uuid,
+  pub uuid: String,
   pub email: Email,
-  #[serde(with = "serde_bytes")]
-  pub strand_cid: Vec<u8>,
+  pub strand_cid: Cid,
   #[serde(with = "serde_bytes")]
   pub strand: Vec<u8>,
   pub status: RegistrationStatus,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RegistrationRecordJson {
+  pub uuid: String,
+  pub email: Email,
+  #[serde(with = "crate::dag_json")]
+  pub strand_cid: Cid,
+  #[serde(with = "crate::dag_json")]
+  pub strand: Tagged<Strand>,
+  pub status: RegistrationStatus,
+}
+
+impl TryFrom<RegistrationRecord> for RegistrationRecordJson {
+  type Error = VerificationError;
+  fn try_from(value: RegistrationRecord) -> std::result::Result<Self, Self::Error> {
+    let strand = Strand::from_block(value.strand_cid, value.strand)?;
+    Ok(RegistrationRecordJson {
+      uuid: value.uuid,
+      email: value.email,
+      strand_cid: value.strand_cid,
+      strand: Tagged::new(strand),
+      status: value.status,
+    })
+  }
+}
+
 impl RegistrationRecord {
   pub fn new(email: Email, strand: Strand) -> Self {
     RegistrationRecord {
-      uuid: Uuid::new_v4(),
+      uuid: Uuid::new_v4().to_string(),
       email,
-      strand_cid: strand.cid().to_bytes(),
+      strand_cid: strand.cid(),
       strand: strand.bytes().to_vec(),
       status: RegistrationStatus::Pending,
     }
   }
 
-  pub fn new_preapproved(email: Email, strand_cid: Cid) -> Self {
+  pub fn new_preapproved(email: Email, strand_cid: Cid, strand: Strand) -> Self {
     RegistrationRecord {
-      uuid: Uuid::new_v4(),
+      uuid: Uuid::new_v4().to_string(),
       email,
-      strand_cid: strand_cid.to_bytes(),
-      strand: Vec::new(),
+      strand_cid,
+      strand: strand.bytes().to_vec(),
       status: RegistrationStatus::Approved,
     }
   }
@@ -62,7 +85,7 @@ impl RegistrationRecord {
       db,
       "INSERT INTO registrations (uuid, email, status, strand_cid, strand)
       VALUES ($1, $2, $3, $4, $5)",
-      self.uuid.as_simple(),
+      self.uuid,
       self.email,
       self.status,
       self.strand_cid,
@@ -78,7 +101,7 @@ impl RegistrationRecord {
       db,
       "UPDATE registrations SET status = $1 WHERE uuid = $2",
       status,
-      self.uuid.as_simple(),
+      self.uuid,
     )?;
 
     query.run().await?;
@@ -91,7 +114,7 @@ impl RegistrationRecord {
     let query = query!(
       db,
       "SELECT * FROM registrations WHERE uuid = $1",
-      uuid.as_simple(),
+      uuid.to_string(),
     )?;
 
     let result = query.first::<RegistrationRecord>(None).await?;

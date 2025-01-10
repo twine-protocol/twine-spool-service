@@ -207,10 +207,13 @@ async fn register_strand(mut req: Request, ctx: Ctx) -> Result<Response> {
 
   // check if we're accepting all
   if ctx.var("ACCEPT_ALL_STRANDS").map(|s| s.to_string()).unwrap_or("false".to_string()) == "true" {
-    let record = RegistrationRecord::new_preapproved(reg.email, strand.cid());
+    let record = RegistrationRecord::new_preapproved(reg.email, strand.cid(), strand.clone());
     record.save(db).await?;
     return match store.put_strand(&strand).await {
-      Ok(_) => Response::from_json(&record),
+      Ok(_) => {
+        let record: RegistrationRecordJson = record.try_into().map_err(|e: VerificationError| worker::Error::RustError(e.to_string()))?;
+        Response::from_json(&record)
+      },
       Err(e) => e.to_response(),
     };
   }
@@ -219,13 +222,17 @@ async fn register_strand(mut req: Request, ctx: Ctx) -> Result<Response> {
   if let Some(existing) = RegistrationRecord::check_approved(db, &strand).await? {
     // it's preapproved so we can save the strand
     match store.put_strand(&strand).await {
-      Ok(_) => Response::from_json(&existing),
+      Ok(_) => {
+        let existing: RegistrationRecordJson = existing.try_into().map_err(|e: VerificationError| worker::Error::RustError(e.to_string()))?;
+        Response::from_json::<RegistrationRecordJson>(&existing)
+      },
       Err(e) => e.to_response(),
     }
   } else {
     let record: RegistrationRecord = reg.into();
     record.save(db).await?;
-    Response::from_json(&record)
+    let record: RegistrationRecordJson = record.try_into().map_err(|e: VerificationError| worker::Error::RustError(e.to_string()))?;
+    Response::from_json::<RegistrationRecordJson>(&record)
   }
 }
 
@@ -240,7 +247,10 @@ async fn check_registration(_req: Request, ctx: Ctx) -> Result<Response> {
 
   let db = &ctx.data.db;
   match RegistrationRecord::fetch(db, uuid).await? {
-    Some(record) => Response::from_json(&record),
+    Some(record) => {
+      let record: RegistrationRecordJson = record.try_into().map_err(|e: VerificationError| worker::Error::RustError(e.to_string()))?;
+      Response::from_json(&record)
+    },
     None => Response::error("Not found", 404),
   }
 }
@@ -248,6 +258,9 @@ async fn check_registration(_req: Request, ctx: Ctx) -> Result<Response> {
 // only check POST and PUT requests
 async fn check_auth(req: &Request, env: &Env) -> std::result::Result<(), ApiError> {
   if req.method() == Method::Get || req.method() == Method::Head {
+    return Ok(());
+  }
+  if req.path() == "/register" {
     return Ok(());
   }
   let auth = req.headers().get("authorization")?.unwrap_or_default();
@@ -293,6 +306,12 @@ async fn fetch(
   };
 
   let response = Router::with_data(store)
+    .get_async("/register", |_req, env| async move {
+      let url: String = ["https://dummyurl.com/", &"register.html"].concat();
+      env.env.assets("ASSETS")
+        .expect("NEED ASSETS")
+        .fetch(url, None).await
+    })
     .post_async("/register", register_strand)
     .get_async("/register/:receipt_id", check_registration)
     .get_async("/", list_strands)

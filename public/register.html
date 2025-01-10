@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+  <title>Register a Strand</title>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <style>
+    form {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: center;
+      margin: 0 auto;
+      max-width: 720px;
+    }
+    input, textarea {
+      margin: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    button {
+      display: block;
+      margin: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <form id="form" action="/register" method="POST">
+    <input type="email" name="email" placeholder="Email" required>
+    <textarea data-format="json" name="strand" placeholder="strand JSON" required rows="50"></textarea>
+    <button type="submit">Register</button>
+  </form>
+  <script>
+    document.getElementById('form').addEventListener('submit', async function(event) {
+      // send json data
+      event.preventDefault()
+      const form = event.target
+      const formData = new FormData(form)
+      const data = {}
+      for (const [key, value] of formData.entries()) {
+        if (form.querySelector(`[name="${key}"]`).dataset.format === 'json') {
+          data[key] = JSON.parse(value)
+        } else {
+          data[key] = value
+        }
+      }
+      const res = await fetch(form.getAttribute('action'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      })
+      if (res.ok) {
+        const json = await res.json();
+        // redirect to the strand page
+        window.location.href = `/register/${json.uuid}`
+      } else {
+        alert(await res.text())
+      }
+    })
+  </script>
+</body>
+</html>
