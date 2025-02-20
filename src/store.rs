@@ -8,7 +8,7 @@ use crate::errors::ApiError;
 #[derive(Debug, Clone)]
 pub enum GeneralQuery {
   Cid(Cid),
-  Query(Query),
+  SingleQuery(SingleQuery),
   Range(RangeQuery),
 }
 
@@ -22,8 +22,8 @@ impl FromStr for GeneralQuery {
         Ok(GeneralQuery::Cid(cid))
       },
       1 => {
-        let query = Query::from_str(s)?;
-        Ok(GeneralQuery::Query(query))
+        let query = SingleQuery::from_str(s)?;
+        Ok(GeneralQuery::SingleQuery(query))
       },
       2 => {
         let range = RangeQuery::from_str(s)?;
@@ -140,12 +140,12 @@ impl D1Store {
   }
 
   pub async fn has(&self, query: &str) -> Result<bool, ApiError> {
-    let q = Query::from_str(query)?;
+    let q = SingleQuery::from_str(query)?;
     match q {
-      Query::Stitch(stitch) => {
+      SingleQuery::Stitch(stitch) => {
         Ok(self.has_tixel(&stitch.tixel).await?)
       },
-      Query::Index(strand_cid, index) => {
+      SingleQuery::Index(strand_cid, index) => {
         let index = if index >= 0 { index as u64 } else {
           let latest = match self.latest_index(&strand_cid).await {
             Ok(latest) => latest,
@@ -156,7 +156,7 @@ impl D1Store {
         };
         Ok(self.has_index(&strand_cid, index).await?)
       },
-      Query::Latest(strand_cid) => {
+      SingleQuery::Latest(strand_cid) => {
         match self.latest_index(&strand_cid).await {
           Ok(_) => Ok(true),
           Err(ApiError::NotFound) => return Ok(false),
@@ -231,7 +231,7 @@ impl D1Store {
           Err(e) => Err(e),
         }
       },
-      GeneralQuery::Query(_) => {
+      GeneralQuery::SingleQuery(_) => {
         self.twine_query(query).await.map(QueryResult::Twine)
       },
       GeneralQuery::Range(_) => {
@@ -286,9 +286,9 @@ impl D1Store {
   }
 
   pub async fn twine_query(&self, query: &str) -> Result<Twine, ApiError> {
-    let q = Query::from_str(query)?;
+    let q = SingleQuery::from_str(query)?;
     match q {
-      Query::Stitch(stitch) => {
+      SingleQuery::Stitch(stitch) => {
         let (strand, tixel) = join(
           self.get_strand(&stitch.strand),
           self.get_tixel(&stitch.tixel),
@@ -298,7 +298,7 @@ impl D1Store {
         let twine = Twine::try_new_from_shared(strand, tixel)?;
         Ok(twine)
       },
-      Query::Index(strand_cid, rel_index) => {
+      SingleQuery::Index(strand_cid, rel_index) => {
         let index = if rel_index < 0 {
           let latest = self.latest_index(&strand_cid).await?;
           latest + 1 + rel_index as u64
@@ -312,7 +312,7 @@ impl D1Store {
         let twine = Twine::try_new_from_shared(strand?, tixel?)?;
         Ok(twine)
       },
-      Query::Latest(strand_cid) => {
+      SingleQuery::Latest(strand_cid) => {
         let (strand, tixel) = join(
           self.get_strand(&strand_cid),
           self.latest(&strand_cid),

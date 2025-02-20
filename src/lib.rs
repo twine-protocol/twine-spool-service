@@ -296,9 +296,9 @@ async fn fetch(
 ) -> Result<Response> {
   console_error_panic_hook::set_once();
 
-  if let Err(e) = check_auth(&req, &env).await {
-    return e.to_response();
-  }
+  // if let Err(e) = check_auth(&req, &env).await {
+  //   return e.to_response();
+  // }
 
   let store = store::D1Store {
     db: env.d1("DB")?,

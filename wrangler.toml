@@ -14,7 +14,7 @@ database_id = "9f6220b6-25f3-4bc0-979a-c5803785ef3b"
 [assets]
 directory = "./public/"
 binding = "ASSETS"
-experimental_serve_directly = false
+run_worker_first = true
 
 [triggers]
 crons = ["*/5 * * * *"]
