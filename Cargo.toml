@@ -30,11 +30,11 @@ chrono = "0.4"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dependencies.ring]
-version = "0.17.9"
+version = "0.17.10"
 features = ["wasm32_unknown_unknown_js"]
 
 [dependencies.uuid]
-version = "1.11.0"
+version = "1.14.0"
 features = [
   "v4",
   "js",
