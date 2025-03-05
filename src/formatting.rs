@@ -1,11 +1,17 @@
 use super::*;
 use std::{sync::Arc, vec};
 use serde::{Deserialize, Serialize};
-use store::QueryResult;
 use twine::twine_core::{car::to_car_stream, twine::Tagged};
 use futures::{stream::iter, StreamExt};
 
 type TwineWrapper = Tagged<AnyTwine>;
+
+#[derive(Debug, Clone)]
+pub enum QueryResult {
+  Strand(Arc<Strand>),
+  Twine(Twine),
+  List(Vec<Twine>),
+}
 
 #[derive(Serialize)]
 pub struct ResponseData {

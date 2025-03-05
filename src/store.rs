@@ -4,6 +4,7 @@ use std::{str::FromStr, sync::Arc};
 use worker::{console_log, query, D1Database, Range};
 use twine::twine_core::serde_ipld_dagjson::codec::DagJsonCodec;
 use crate::errors::ApiError;
+use crate::formatting::QueryResult;
 
 #[derive(Debug, Clone)]
 pub enum GeneralQuery {
@@ -18,7 +19,7 @@ impl FromStr for GeneralQuery {
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     match s.bytes().filter(|c| *c == b':').count() {
       0 => {
-        let cid = Cid::try_from(s).map_err(|e| ApiError::InvalidQuery(ConversionError::InvalidCid(e)))?;
+        let cid = Cid::try_from(s).map_err(|e| ConversionError::InvalidCid(e))?;
         Ok(GeneralQuery::Cid(cid))
       },
       1 => {
@@ -29,16 +30,9 @@ impl FromStr for GeneralQuery {
         let range = RangeQuery::from_str(s)?;
         Ok(GeneralQuery::Range(range))
       },
-      _ => Err(ApiError::InvalidQuery(ConversionError::InvalidFormat(s.to_string()))),
+      _ => Err(ConversionError::InvalidFormat(s.to_string()).into()),
     }
   }
-}
-
-#[derive(Debug, Clone)]
-pub enum QueryResult {
-  Strand(Arc<Strand>),
-  Twine(Twine),
-  List(Vec<Twine>),
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

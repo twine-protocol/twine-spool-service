@@ -26,15 +26,16 @@ futures = "0.3"
 twine = { path = "../twine-rs", features = ["build", "http", "sha3", "blake2b", "blake3"] }
 thiserror = "2.0.11"
 rand = "0.9.0"
-chrono = "0.4"
+chrono = "0.4.40"
 getrandom = { version = "0.3", features = ["wasm_js"] }
+async-trait = "0.1.86"
 
 [dependencies.ring]
-version = "0.17.10"
+version = "0.17.11"
 features = ["wasm32_unknown_unknown_js"]
 
 [dependencies.uuid]
-version = "1.14.0"
+version = "1.15.1"
 features = [
   "v4",
   "js",
