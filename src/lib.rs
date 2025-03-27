@@ -1,10 +1,10 @@
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use car::car_to_twines;
 use futures::TryStreamExt;
 use uuid::Uuid;
 use worker::*;
-use twine::{prelude::{unchecked_base::BaseResolver, *}, twine_core::{self, ipld_core::ipld}};
+use twine_protocol::{prelude::{unchecked_base::BaseResolver, *}, twine_lib::{self, ipld_core::ipld}};
 
 mod errors;
 use errors::*;
@@ -25,9 +25,9 @@ fn get_max_batch_size(env: &Env) -> u64 {
     .unwrap_or(1000)
 }
 
-fn as_multi_resolver(store: d1_store::D1Store) -> ResolverSetSeries<Box<dyn twine_core::resolver::unchecked_base::BaseResolver>> {
-  use twine::twine_http_store::{reqwest, v1::HttpStore};
-  let cfg = twine::twine_http_store::v1::HttpStoreOptions::default()
+fn as_multi_resolver(store: d1_store::D1Store) -> ResolverSetSeries<Box<dyn twine_lib::resolver::unchecked_base::BaseResolver>> {
+  use twine_protocol::twine_http_store::{reqwest, v1::HttpStore};
+  let cfg = twine_protocol::twine_http_store::v1::HttpStoreOptions::default()
     .url("https://random.colorado.edu/api");
 
   let mut resolver = ResolverSetSeries::default();
@@ -176,7 +176,7 @@ async fn put_tixels(mut req: Request, ctx: Ctx) -> Result<Response> {
   };
 
   let mut twines = match tixels.into_iter()
-    .map(|t| Twine::try_new_from_shared(strand.clone().unpack(), Arc::new(t)))
+    .map(|t| Twine::try_new(strand.clone().unpack(), t))
     .collect::<std::result::Result<Vec<Twine>, _>>()
   {
     Ok(twines) => twines,
@@ -357,13 +357,10 @@ async fn fetch(
   })
 }
 
-mod randomness_test;
-use randomness_test::*;
-
-#[event(scheduled)]
-pub async fn scheduled(_e: ScheduledEvent, env: Env, _: ScheduleContext) {
-  match handle_randomness_pulse(env).await {
-    Ok(t) => console_log!("Randomness pulse released: {}", t.cid()),
-    Err(e) => console_error!("Error handling randomness pulse: {:?}", e),
-  };
-}
+// #[event(scheduled)]
+// pub async fn scheduled(_e: ScheduledEvent, env: Env, _: ScheduleContext) {
+//   match handle_randomness_pulse(env).await {
+//     Ok(t) => console_log!("Randomness pulse released: {}", t.cid()),
+//     Err(e) => console_error!("Error handling randomness pulse: {:?}", e),
+//   };
+// }

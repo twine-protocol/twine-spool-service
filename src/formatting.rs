@@ -1,14 +1,13 @@
 use super::*;
-use std::{sync::Arc, vec};
 use serde::{Deserialize, Serialize};
-use twine::twine_core::{car::to_car_stream, twine::Tagged};
+use twine_protocol::twine_lib::{car::to_car_stream, twine::Tagged};
 use futures::{stream::iter, StreamExt};
 
 type TwineWrapper = Tagged<AnyTwine>;
 
 #[derive(Debug, Clone)]
 pub enum QueryResult {
-  Strand(Arc<Strand>),
+  Strand(Strand),
   Twine(Twine),
   List(Vec<Twine>),
 }
@@ -63,7 +62,7 @@ pub async fn car_response(items: Vec<AnyTwine>) -> Result<Response> {
   Response::from_bytes(car)
 }
 
-pub async fn strand_response(req: Request, result: Arc<Strand>) -> Result<Response> {
+pub async fn strand_response(req: Request, result: Strand) -> Result<Response> {
   let accepts = req.headers().get("accept")?.unwrap_or_default();
   if accepts == "application/octet-stream" || accepts == "application/vnd.ipld.car" {
     let blocks: Vec<AnyTwine> = vec![result.into()];
@@ -78,13 +77,13 @@ pub async fn twine_response(req: Request, result: Twine) -> Result<Response> {
   let accepts = req.headers().get("accept")?.unwrap_or_default();
   if accepts == "application/octet-stream" || accepts == "application/vnd.ipld.car" {
     let blocks: Vec<AnyTwine> = if q.full.is_some() {
-      vec![result.strand().into(), result.tixel().into()]
+      vec![result.strand().clone().into(), result.tixel().clone().into()]
     } else {
-      vec![result.tixel().into()]
+      vec![result.tixel().clone().into()]
     };
     return car_response(blocks).await;
   }
-  let strand = (*result.strand()).clone();
+  let strand = result.strand().clone();
   let mut res = ResponseData::from_twine(result);
   if q.full.is_some() {
     res.with_strand(strand);
@@ -95,13 +94,13 @@ pub async fn twine_response(req: Request, result: Twine) -> Result<Response> {
 pub async fn twine_collection_response(req: Request, results: Vec<Twine>) -> Result<Response> {
   let q : RequestQuery = req.query()?;
   let strand = if let Some(first) = results.first() {
-    Some((*first.strand()).clone())
+    Some(first.strand().clone())
   } else {
     None
   };
   let accepts = req.headers().get("accept")?.unwrap_or_default();
   if accepts == "application/octet-stream" || accepts == "application/vnd.ipld.car" {
-    let mut blocks: Vec<AnyTwine> = results.into_iter().map(|t| t.tixel().into()).collect();
+    let mut blocks: Vec<AnyTwine> = results.into_iter().map(|t| t.tixel().clone().into()).collect();
     if q.full.is_some() {
       blocks.insert(0, strand.unwrap().into());
     }
@@ -122,7 +121,7 @@ pub async fn query_response(req: Request, result: QueryResult) -> Result<Respons
   }
 }
 
-pub async fn strand_collection_response(req: Request, results: Vec<Arc<Strand>>) -> Result<Response> {
+pub async fn strand_collection_response(req: Request, results: Vec<Strand>) -> Result<Response> {
   let accepts = req.headers().get("accept")?.unwrap_or_default();
   if accepts == "application/octet-stream" || accepts == "application/vnd.ipld.car" {
     let blocks: Vec<AnyTwine> = results.into_iter().map(|s| s.into()).collect();

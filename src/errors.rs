@@ -1,10 +1,10 @@
-use twine::{prelude::{ResolutionError, StoreError}, twine_core::errors::{ConversionError, VerificationError}};
+use twine_protocol::{prelude::{ResolutionError, StoreError}, twine_lib::errors::{ConversionError, VerificationError}};
 use worker::console_log;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
   #[error("Corrupted cid: {0}")]
-  Corrupted(#[from] twine::twine_core::cid::Error),
+  Corrupted(#[from] twine_protocol::twine_lib::cid::Error),
   #[error("Bad Data: {0}")]
   BadRequestData(String),
   #[error("Server error: {0}")]

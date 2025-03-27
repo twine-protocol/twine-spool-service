@@ -1,8 +1,8 @@
 use futures::future::join;
-use twine::{prelude::*, twine_core::ipld_core::codec::Codec};
-use std::{str::FromStr, sync::Arc};
-use worker::{console_log, query, D1Database, Range};
-use twine::twine_core::serde_ipld_dagjson::codec::DagJsonCodec;
+use twine_protocol::{prelude::*, twine_lib::ipld_core::codec::Codec};
+use std::str::FromStr;
+use worker::{query, D1Database};
+use twine_protocol::twine_lib::serde_ipld_dagjson::codec::DagJsonCodec;
 use crate::errors::ApiError;
 use crate::formatting::QueryResult;
 
@@ -59,29 +59,29 @@ pub struct D1Store {
 }
 
 impl D1Store {
-  pub async fn get_strands(&self) -> Result<Vec<Arc<Strand>>, ApiError> {
+  pub async fn get_strands(&self) -> Result<Vec<Strand>, ApiError> {
     let query = query!(&self.db, "SELECT cid, data FROM Strands");
     let result = query.all().await?;
     let results = result.results::<BlockRecord>()?;
     let strands = results.into_iter().map(|block| {
-      Ok(Arc::new(block.into_strand()?))
+      Ok(block.into_strand()?)
     });
     strands.collect()
   }
 
-  pub async fn get_strand(&self, cid: &Cid) -> Result<Arc<Strand>, ApiError> {
+  pub async fn get_strand(&self, cid: &Cid) -> Result<Strand, ApiError> {
     let query = query!(&self.db, "SELECT data FROM Strands WHERE cid = ?1", cid.to_bytes())?;
     let result = query.first::<Vec<u8>>(Some("data")).await?;
     let bytes = result.ok_or(ApiError::NotFound)?;
     let strand = Strand::from_block(*cid, bytes)?;
-    Ok(Arc::new(strand))
+    Ok(strand)
   }
 
-  pub async fn get_tixel(&self, cid: &Cid) -> Result<Arc<Tixel>, ApiError> {
+  pub async fn get_tixel(&self, cid: &Cid) -> Result<Tixel, ApiError> {
     let query = query!(&self.db, "SELECT data FROM Tixels WHERE cid = ?1", cid.to_bytes())?;
     let result = query.first::<Vec<u8>>(Some("data")).await?;
     let bytes = result.ok_or(ApiError::NotFound)?;
-    Ok(Arc::new(Tixel::from_block(*cid, bytes)?))
+    Ok(Tixel::from_block(*cid, bytes)?)
   }
 
   pub async fn get_by_cid(&self, cid: &Cid) -> Result<AnyTwine, ApiError> {
@@ -160,7 +160,7 @@ impl D1Store {
     }
   }
 
-  pub async fn get_by_index(&self, strand_cid: &Cid, index: u64) -> Result<Arc<Tixel>, ApiError> {
+  pub async fn get_by_index(&self, strand_cid: &Cid, index: u64) -> Result<Tixel, ApiError> {
     let query = query!(
       &self.db,
       "SELECT Tixels.cid, Tixels.data
@@ -173,7 +173,7 @@ impl D1Store {
     )?;
     let result = query.first::<BlockRecord>(None).await?;
     let block = result.ok_or(ApiError::NotFound)?;
-    Ok(Arc::new(block.into_tixel()?))
+    Ok(block.into_tixel()?)
   }
 
   pub async fn latest_index(&self, strand_cid: &Cid) -> Result<u64, ApiError> {
@@ -192,7 +192,7 @@ impl D1Store {
     Ok(index)
   }
 
-  pub async fn latest(&self, strand_cid: &Cid) -> Result<Arc<Tixel>, ApiError> {
+  pub async fn latest(&self, strand_cid: &Cid) -> Result<Tixel, ApiError> {
     let query = query!(
       &self.db,
       "SELECT Tixels.cid, Tixels.data
@@ -206,7 +206,7 @@ impl D1Store {
 
     let result = query.first::<BlockRecord>(None).await?;
     let block = result.ok_or(ApiError::NotFound)?;
-    Ok(Arc::new(block.into_tixel()?))
+    Ok(block.into_tixel()?)
   }
 
   pub async fn exec_query(&self, query: &str) -> Result<QueryResult, ApiError> {
@@ -272,8 +272,8 @@ impl D1Store {
     let strand = strand?;
     let results = result?.results::<BlockRecord>()?;
     let twines = results.into_iter().map(|block| {
-      let tixel = Arc::new(block.into_tixel()?);
-      Ok(Twine::try_new_from_shared(strand.clone(), tixel)?)
+      let tixel = block.into_tixel()?;
+      Ok(Twine::try_new(strand.clone(), tixel)?)
     });
 
     twines.collect()
@@ -289,7 +289,7 @@ impl D1Store {
         ).await;
         let strand = strand?;
         let tixel = tixel?;
-        let twine = Twine::try_new_from_shared(strand, tixel)?;
+        let twine = Twine::try_new(strand, tixel)?;
         Ok(twine)
       },
       SingleQuery::Index(strand_cid, rel_index) => {
@@ -303,7 +303,7 @@ impl D1Store {
           self.get_strand(&strand_cid),
           self.get_by_index(&strand_cid, index),
         ).await;
-        let twine = Twine::try_new_from_shared(strand?, tixel?)?;
+        let twine = Twine::try_new(strand?, tixel?)?;
         Ok(twine)
       },
       SingleQuery::Latest(strand_cid) => {
@@ -311,7 +311,7 @@ impl D1Store {
           self.get_strand(&strand_cid),
           self.latest(&strand_cid),
         ).await;
-        let twine = Twine::try_new_from_shared(strand?, tixel?)?;
+        let twine = Twine::try_new(strand?, tixel?)?;
         Ok(twine)
       },
     }
@@ -408,8 +408,8 @@ impl D1Store {
     Ok(())
   }
 
-  pub async fn upcast(&self, tixel: Arc<Tixel>) -> Result<Twine, ApiError> {
+  pub async fn upcast(&self, tixel: Tixel) -> Result<Twine, ApiError> {
     let strand = self.get_strand(&tixel.strand_cid()).await?;
-    Ok(Twine::try_new_from_shared(strand, tixel)?)
+    Ok(Twine::try_new(strand, tixel)?)
   }
 }

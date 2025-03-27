@@ -1,18 +1,17 @@
-use twine::{prelude::*, twine_core::ipld_core::codec::Codec};
-use std::sync::Arc;
+use twine_protocol::{prelude::*, twine_lib::ipld_core::codec::Codec};
 use worker::{query, D1Database};
-use twine::twine_core::serde_ipld_dagjson::codec::DagJsonCodec;
+use twine_protocol::twine_lib::serde_ipld_dagjson::codec::DagJsonCodec;
 use async_trait::async_trait;
 use futures::stream::{unfold, Stream};
 use futures::stream::{StreamExt, TryStreamExt};
-use twine::twine_core::as_cid::AsCid;
-use twine::twine_core::twine::{AnyTwine, TwineBlock};
+use twine_protocol::twine_lib::as_cid::AsCid;
+use twine_protocol::twine_lib::twine::{AnyTwine, TwineBlock};
 use std::pin::Pin;
-use twine::twine_core::errors::{ResolutionError, StoreError};
-use twine::twine_core::{twine::{Strand, Tixel}, Cid};
-use twine::twine_core::resolver::{unchecked_base, Resolver};
-use twine::twine_core::store::Store;
-use twine::twine_core::resolver::AbsoluteRange;
+use twine_protocol::twine_lib::errors::{ResolutionError, StoreError};
+use twine_protocol::twine_lib::{twine::{Strand, Tixel}, Cid};
+use twine_protocol::twine_lib::resolver::{unchecked_base, Resolver};
+use twine_protocol::twine_lib::store::Store;
+use twine_protocol::twine_lib::resolver::AbsoluteRange;
 
 const BATCH_SIZE : u64 = 1000;
 
@@ -55,14 +54,14 @@ impl D1Store {
     Self { db }
   }
 
-  async fn all_strands(&self) -> Result<Pin<Box<dyn Stream<Item = Result<Arc<Strand>, ResolutionError>> + '_>>, ResolutionError> {
-    async fn next_page(db: &D1Database, offset: i64) -> Result<Vec<Result<Arc<Strand>, ResolutionError>>, ResolutionError> {
+  async fn all_strands(&self) -> Result<Pin<Box<dyn Stream<Item = Result<Strand, ResolutionError>> + '_>>, ResolutionError> {
+    async fn next_page(db: &D1Database, offset: i64) -> Result<Vec<Result<Strand, ResolutionError>>, ResolutionError> {
       let query_str = "SELECT cid, data FROM Strands LIMIT 100 OFFSET $1";
       let query = query!(db, query_str, offset).map_err(to_resolution_error)?;
       let result = query.all().await.map_err(to_resolution_error)?;
       let results = result.results::<BlockRecord>().map_err(to_resolution_error)?;
       let strands = results.into_iter().map(|block| {
-        Ok(Arc::new(block.into_strand()?))
+        Ok(block.into_strand()?)
       });
       Ok(strands.collect())
     }
@@ -86,12 +85,12 @@ impl D1Store {
     Ok(stream)
   }
 
-  pub async fn get_strand(&self, cid: &Cid) -> Result<Arc<Strand>, ResolutionError> {
+  pub async fn get_strand(&self, cid: &Cid) -> Result<Strand, ResolutionError> {
     let query = query!(&self.db, "SELECT data FROM Strands WHERE cid = ?1", cid.to_bytes()).map_err(to_resolution_error)?;
     let result = query.first::<Vec<u8>>(Some("data")).await.map_err(to_resolution_error)?;
     let bytes = result.ok_or(ResolutionError::NotFound)?;
     let strand = Strand::from_block(*cid, bytes)?;
-    Ok(Arc::new(strand))
+    Ok(strand)
   }
 
   pub async fn has_tixel(&self, cid: &Cid) -> Result<bool, ResolutionError> {
@@ -124,14 +123,14 @@ impl D1Store {
     Ok(Cid::try_from(bytes).map_err(|e| ResolutionError::Fetch(e.to_string()))?)
   }
 
-  pub async fn get_tixel(&self, cid: &Cid) -> Result<Arc<Tixel>, ResolutionError> {
+  pub async fn get_tixel(&self, cid: &Cid) -> Result<Tixel, ResolutionError> {
     let query = query!(&self.db, "SELECT data FROM Tixels WHERE cid = ?1", cid.to_bytes()).map_err(to_resolution_error)?;
     let result = query.first::<Vec<u8>>(Some("data")).await.map_err(to_resolution_error)?;
     let bytes = result.ok_or(ResolutionError::NotFound)?;
-    Ok(Arc::new(Tixel::from_block(*cid, bytes)?))
+    Ok(Tixel::from_block(*cid, bytes)?)
   }
 
-  async fn get_tixel_by_index(&self, strand_cid: &Cid, index: u64) -> Result<Arc<Tixel>, ResolutionError> {
+  async fn get_tixel_by_index(&self, strand_cid: &Cid, index: u64) -> Result<Tixel, ResolutionError> {
     let query = query!(
       &self.db,
       "SELECT Tixels.cid, Tixels.data
@@ -144,10 +143,10 @@ impl D1Store {
     ).map_err(to_resolution_error)?;
     let result = query.first::<BlockRecord>(None).await.map_err(to_resolution_error)?;
     let block = result.ok_or(ResolutionError::NotFound)?;
-    Ok(Arc::new(block.into_tixel()?))
+    Ok(block.into_tixel()?)
   }
 
-  async fn latest_tixel(&self, strand_cid: &Cid) -> Result<Arc<Tixel>, ResolutionError> {
+  async fn latest_tixel(&self, strand_cid: &Cid) -> Result<Tixel, ResolutionError> {
     let query = query!(
       &self.db,
       "SELECT Tixels.cid, Tixels.data
@@ -160,7 +159,7 @@ impl D1Store {
     ).map_err(to_resolution_error)?;
     let result = query.first::<BlockRecord>(None).await.map_err(to_resolution_error)?;
     let block = result.ok_or(ResolutionError::NotFound)?;
-    Ok(Arc::new(block.into_tixel()?))
+    Ok(block.into_tixel()?)
   }
 
   async fn save_strand(&self, strand: &Strand) -> Result<(), StoreError> {
@@ -214,7 +213,7 @@ impl D1Store {
 #[async_trait(?Send)]
 impl unchecked_base::BaseResolver for D1Store {
 
-  async fn fetch_strands(&self) -> Result<Pin<Box<dyn Stream<Item = Result<Arc<Strand>, ResolutionError>> + '_>>, ResolutionError> {
+  async fn fetch_strands(&self) -> Result<Pin<Box<dyn Stream<Item = Result<Strand, ResolutionError>> + '_>>, ResolutionError> {
     self.all_strands().await
   }
 
@@ -236,26 +235,26 @@ impl unchecked_base::BaseResolver for D1Store {
     self.has_tixel(cid).await
   }
 
-  async fn fetch_strand(&self, strand: &Cid) -> Result<Arc<Strand>, ResolutionError> {
+  async fn fetch_strand(&self, strand: &Cid) -> Result<Strand, ResolutionError> {
     self.get_strand(strand).await
   }
 
-  async fn fetch_tixel(&self, _strand: &Cid, tixel: &Cid) -> Result<Arc<Tixel>, ResolutionError> {
+  async fn fetch_tixel(&self, _strand: &Cid, tixel: &Cid) -> Result<Tixel, ResolutionError> {
     self.get_tixel(tixel).await
   }
 
-  async fn fetch_index(&self, strand: &Cid, index: u64) -> Result<Arc<Tixel>, ResolutionError> {
+  async fn fetch_index(&self, strand: &Cid, index: u64) -> Result<Tixel, ResolutionError> {
     self.get_tixel_by_index(strand, index).await
   }
 
-  async fn fetch_latest(&self, strand: &Cid) -> Result<Arc<Tixel>, ResolutionError> {
+  async fn fetch_latest(&self, strand: &Cid) -> Result<Tixel, ResolutionError> {
     self.latest_tixel(strand).await
   }
 
-  async fn range_stream(&self, range: AbsoluteRange) -> Result<Pin<Box<dyn Stream<Item = Result<Arc<Tixel>, ResolutionError>> + '_>>, ResolutionError> {
+  async fn range_stream(&self, range: AbsoluteRange) -> Result<Pin<Box<dyn Stream<Item = Result<Tixel, ResolutionError>> + '_>>, ResolutionError> {
     let batches = range.batches(BATCH_SIZE);
 
-    async fn get_batch(db: &D1Database, range: &AbsoluteRange) -> Result<Vec<Result<Arc<Tixel>, ResolutionError>>, ResolutionError> {
+    async fn get_batch(db: &D1Database, range: &AbsoluteRange) -> Result<Vec<Result<Tixel, ResolutionError>>, ResolutionError> {
       let dir = if range.is_increasing() { "ASC" } else { "DESC" };
       let query = query!(
         &db,
@@ -277,7 +276,7 @@ impl unchecked_base::BaseResolver for D1Store {
         .into_iter()
         .map(|block| {
           let cid = Cid::try_from(block.cid).map_err(|e| ResolutionError::Fetch(e.to_string()))?;
-          Ok(Arc::new(Tixel::from_block(cid, block.data)?))
+          Ok(Tixel::from_block(cid, block.data)?)
         })
         .collect::<Vec<_>>();
 

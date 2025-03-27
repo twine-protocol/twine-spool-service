@@ -1,7 +1,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
-use twine::twine_core::twine::Tagged;
+use twine_protocol::twine_lib::twine::Tagged;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
