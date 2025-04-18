@@ -62,9 +62,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.96"
+version = "1.0.97"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b964d184e89d9b6b67dd2715bc8e74cf3107fb2b529990c90cf517326150bf4"
+checksum = "dcfed56ad506cb2c684a14971b8861fdc3baaaae314b9e5f9bb532cbe3ba7a4f"
 
 [[package]]
 name = "arrayref"
@@ -113,6 +113,65 @@ name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
+
+[[package]]
+name = "axum"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de45108900e1f9b9242f7f2e254aa3e2c029c921c258fe9e6b4217eeebd54288"
+dependencies = [
+ "axum-core",
+ "axum-macros",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "itoa",
+ "matchit 0.8.4",
+ "memchr",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sync_wrapper",
+ "tower",
+ "tower-layer",
+ "tower-service",
+]
+
+[[package]]
+name = "axum-core"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68464cd0412f486726fb3373129ef5d2993f90c34bc2bc1c1e9943b2f4fc7ca6"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "http",
+ "http-body",
+ "http-body-util",
+ "mime",
+ "pin-project-lite",
+ "rustversion",
+ "sync_wrapper",
+ "tower-layer",
+ "tower-service",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "604fde5e028fea851ce1d8570bbdc034bec850d157f7569d10f347d06808c05c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+]
 
 [[package]]
 name = "backon"
@@ -708,9 +767,9 @@ dependencies = [
 
 [[package]]
 name = "fvm_ipld_car"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae2ac8401588b8e1376f5034118858e31cacdb18fad4ba0f18837daca7f7615a"
+checksum = "7c4c2b7846233244459bb0370a6b5b58848c18e29505d262575ffa15324f176e"
 dependencies = [
  "cid 0.11.1",
  "futures",
@@ -719,15 +778,15 @@ dependencies = [
  "multihash-codetable",
  "multihash-derive 0.9.1",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "unsigned-varint 0.8.0",
 ]
 
 [[package]]
 name = "fvm_ipld_encoding"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "723294d1574e0126a9e16069ef6581a2ee3c06eb7d6edc33eb2a976057747bfb"
+checksum = "c4fd0c7d16be0076920acd5bf13e705a80dfe6540d4722b19745daa9ea93722a"
 dependencies = [
  "anyhow",
  "cid 0.11.1",
@@ -737,7 +796,7 @@ dependencies = [
  "serde_ipld_dagcbor",
  "serde_repr",
  "serde_tuple",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -858,9 +917,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "1.2.0"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f16ca2af56261c99fba8bac40a10251ce8188205a4c448fbb745a2e4daa76fea"
+checksum = "f4a85d31aea989eead29a3aaf9e1115a180df8282431156e533de47660892565"
 dependencies = [
  "bytes",
  "fnv",
@@ -879,12 +938,12 @@ dependencies = [
 
 [[package]]
 name = "http-body-util"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793429d76616a256bcb62c2a2ec2bed781c8307e797e2598c50010f2bee2544f"
+checksum = "b021d93e26becf5dc7e1b75b1bed1fd93124b374ceb73f43d4d4eafec896a64a"
 dependencies = [
  "bytes",
- "futures-util",
+ "futures-core",
  "http",
  "http-body",
  "pin-project-lite",
@@ -895,6 +954,12 @@ name = "httparse"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2d708df4e7140240a16cd6ab0ab65c972d7433ab77819ea693fde9c43811e2a"
+
+[[package]]
+name = "httpdate"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hyper"
@@ -909,6 +974,7 @@ dependencies = [
  "http",
  "http-body",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
@@ -1294,6 +1360,12 @@ name = "matchit"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
+
+[[package]]
+name = "matchit"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "memchr"
@@ -1780,13 +1852,12 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
+checksum = "9fbfd9d094a40bf3ae768db9361049ace4c0e04a4fd6b359518bd7b73a73dd97"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.1",
- "zerocopy 0.8.20",
 ]
 
 [[package]]
@@ -2088,9 +2159,9 @@ dependencies = [
 
 [[package]]
 name = "serde-email"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c9f8652ec4a59c7e1a4881c50339a711a8ef9b1fe2e87a84c6fff58eee242a2"
+checksum = "5185e64f83980e6bce8058beda9ae593c5589e90c2cdde62a01e3ecd960acd76"
 dependencies = [
  "email_address",
  "serde",
@@ -2171,6 +2242,16 @@ dependencies = [
  "itoa",
  "memchr",
  "ryu",
+ "serde",
+]
+
+[[package]]
+name = "serde_path_to_error"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59fab13f937fa393d08645bf3a84bdfe86e296747b506ada67bb15f10f218b2a"
+dependencies = [
+ "itoa",
  "serde",
 ]
 
@@ -2612,17 +2693,23 @@ name = "twine-spool-service"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "chrono",
  "console_error_panic_hook",
  "futures",
  "fvm_ipld_car",
  "getrandom 0.3.2",
- "rand 0.9.0",
+ "http",
+ "http-body-util",
+ "hyper",
+ "rand 0.9.1",
  "ring",
  "serde",
  "serde-email",
  "serde_bytes",
  "thiserror 2.0.12",
+ "tower",
+ "twine_http_store",
  "twine_protocol",
  "uuid",
  "worker",
@@ -2631,9 +2718,9 @@ dependencies = [
 
 [[package]]
 name = "twine_builder"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f02f8133f1dde278bb7cedffc74f805d67fe80127c622289b799d8d0f5371019"
+checksum = "7c9a3ddc6d735b9005eeab1a01ade96807f816517fe15fc0ce7dee805ced0a8e"
 dependencies = [
  "chrono",
  "const-oid",
@@ -2649,25 +2736,30 @@ dependencies = [
 
 [[package]]
 name = "twine_http_store"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a7495218827014bf82bf1fb571984a2528f79a45340cb97ce2e77bdba97c5d0"
+checksum = "1f87729fa81f946ab1409148a9442f0ffd2f6759c9426a73e21b182dedffc66a"
 dependencies = [
  "async-trait",
  "backon",
  "futures",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "itertools",
  "reqwest",
  "serde",
  "serde_json",
+ "thiserror 2.0.12",
  "twine_lib",
 ]
 
 [[package]]
 name = "twine_lib"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d2404713907047cb3c19f67a8fea23356f0d64fffca0ed0a2645d3c47bb3892"
+checksum = "d16342c2950b773a40037252add0cf99d45c7fd6575f5c34e93234691ada31e9"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2699,12 +2791,11 @@ dependencies = [
 
 [[package]]
 name = "twine_protocol"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa9f712e43b713bc350b053ad2dca1fa0005bfb3a554d0902709c4c3702a84b0"
+checksum = "bfe3938cd53305342b45cc3e9370e338867240f59aca78228d60afc4875a2b0b"
 dependencies = [
  "twine_builder",
- "twine_http_store",
  "twine_lib",
 ]
 
@@ -3072,7 +3163,7 @@ dependencies = [
  "http",
  "http-body",
  "js-sys",
- "matchit",
+ "matchit 0.7.3",
  "pin-project",
  "serde",
  "serde-wasm-bindgen 0.6.5",

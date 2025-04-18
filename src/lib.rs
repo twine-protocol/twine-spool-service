@@ -1,23 +1,23 @@
-use std::str::FromStr;
+use std::convert::Infallible;
 
-use car::car_to_twines;
-use futures::TryStreamExt;
+// use car::car_to_twines;
+// use futures::TryStreamExt;
+use http::StatusCode;
+use http_body_util::BodyDataStream;
 use uuid::Uuid;
 use worker::*;
-use twine_protocol::{prelude::{unchecked_base::BaseResolver, *}, twine_lib::{self, ipld_core::ipld}};
+use twine_protocol::prelude::{unchecked_base::BaseResolver, *};
 
 mod errors;
 use errors::*;
 mod store;
 mod d1_store;
 mod formatting;
-use formatting::*;
+// use formatting::*;
 mod registration;
 use registration::*;
 mod dag_json;
 mod car;
-
-type Ctx = RouteContext<d1_store::D1Store>;
 
 fn get_max_batch_size(env: &Env) -> u64 {
   env.var("MAX_BATCH_SIZE")
@@ -25,266 +25,12 @@ fn get_max_batch_size(env: &Env) -> u64 {
     .unwrap_or(1000)
 }
 
-fn as_multi_resolver(store: d1_store::D1Store) -> ResolverSetSeries<Box<dyn twine_lib::resolver::unchecked_base::BaseResolver>> {
-  use twine_protocol::twine_http_store::{reqwest, v1::HttpStore};
-  let cfg = twine_protocol::twine_http_store::v1::HttpStoreOptions::default()
-    .url("https://random.colorado.edu/api");
-
-  let mut resolver = ResolverSetSeries::default();
-  resolver.add_boxed(HttpStore::new(reqwest::Client::new(), cfg));
-  resolver.add_boxed(store);
-  resolver
-}
-
-async fn list_strands(_req: Request, ctx: Ctx) -> Result<Response> {
-  let store = &ctx.data;
-
-  let strands = match store.strands().await {
-    Ok(strands) => strands,
-    Err(e) => return ApiError::from(e).to_response(),
-  };
-  match strands.try_collect().await {
-    Ok(strands) => strand_collection_response(_req, strands).await,
-    Err(e) => ApiError::from(e).to_response(),
-  }
-}
-
-async fn exec_has(_req: Request, ctx: Ctx) -> Result<Response> {
-  async fn handle(ctx: &Ctx, query: &str) -> std::result::Result<bool, ApiError> {
-    let store = &ctx.data;
-    let query = AnyQuery::from_str(query)?;
-    match query {
-      AnyQuery::One(q) => {
-        Ok(store.has(q).await?)
-      },
-      AnyQuery::Strand(cid) => {
-        Ok(store.has(cid).await?)
-      },
-      AnyQuery::Many(_) => Err(ApiError::InvalidQuery(
-        "May only call HEAD for queries of a single item".to_string()
-      )),
-    }
-  }
-
-  match ctx.param("query") {
-    Some(query) => {
-      match handle(&ctx, query).await {
-        Ok(res) => if res {
-          Response::empty()
-        } else {
-          Response::empty().map(|r| r.with_status(404))
-        },
-        Err(e) => e.to_response(),
-      }
-    },
-    None => Response::error("Missing query", 400),
-  }
-}
-
-async fn exec_query(req: Request, ctx: Ctx) -> Result<Response> {
-  async fn handle(ctx: &Ctx, query: &str) -> std::result::Result<QueryResult, ApiError> {
-    let store = &ctx.data;
-    let max_batch_size: u64 = get_max_batch_size(&ctx.env);
-    let query = AnyQuery::from_str(query)?;
-    match query {
-      AnyQuery::One(q) => {
-        let result = store.resolve(q).await?;
-        Ok(QueryResult::Twine(result.unpack()))
-      },
-      AnyQuery::Strand(cid) => {
-        let result = store.resolve_strand(cid).await?;
-        Ok(QueryResult::Strand(result.unpack()))
-      },
-      AnyQuery::Many(range) => {
-        let abs_range = match range.try_to_absolute(store).await? {
-          Some(r) => r,
-          None => return Ok(QueryResult::List(vec![])),
-        };
-        if abs_range.len() > max_batch_size {
-          return Err(ApiError::BadRequestData(format!("Range size too large. Must be less than or equal to {}", max_batch_size)));
-        }
-        let result = store.resolve_range(range).await?.try_collect().await?;
-        Ok(QueryResult::List(result))
-      },
-    }
-  }
-  match ctx.param("query") {
-    Some(query) => {
-      match handle(&ctx, query).await {
-        Ok(res) => query_response(req, res).await,
-        Err(e) => e.to_response(),
-      }
-    },
-    None => Response::error("Missing query", 400),
-  }
-}
-
-async fn put_strands(mut req: Request, ctx: Ctx) -> Result<Response> {
-  let store = &ctx.data;
-  // check that the request is either content-type application/octet-stream or application/vnd.ipld.car
-  let content_type = req.headers().get("content-type")?.unwrap_or_default();
-  if content_type != "application/octet-stream" && content_type != "application/vnd.ipld.car" {
-    return Response::error("Invalid content type", 400);
-  }
-  let bytes = req.bytes().await?;
-  let strands: Vec<Strand> = match car_to_twines(bytes.as_ref()).await {
-    Ok(strands) => strands,
-    Err(e) => return e.to_response(),
-  };
-
-  use futures::stream::StreamExt;
-  use futures::stream::TryStreamExt;
-  match futures::stream::iter(strands)
-    .inspect(|strand| console_log!("saving strand {}", strand.cid()))
-    .map(|strand| async move {
-      store.save(strand).await
-    })
-    .buffer_unordered(10)
-    .try_collect::<Vec<()>>().await
-  {
-    Ok(_) => Response::ok("Put strands"),
-    Err(e) => ApiError::from(e).to_response(),
-  }
-}
-
-async fn put_tixels(mut req: Request, ctx: Ctx) -> Result<Response> {
-  let store = &ctx.data;
-  // check that the request is either content-type application/octet-stream or application/vnd.ipld.car
-  let content_type = req.headers().get("content-type")?.unwrap_or_default();
-  if content_type != "application/octet-stream" && content_type != "application/vnd.ipld.car" {
-    return Response::error("Invalid content type", 400);
-  }
-  let bytes = req.bytes().await?;
-  // check to ensure the strand is allowed
-  let strand_cid = match ctx.param("strand_cid") {
-    Some(cid) => match cid.parse::<Cid>() {
-      Ok(cid) => cid,
-      Err(_) => return Response::error("Invalid strand cid", 400),
-    },
-    None => return Response::error("Missing strand cid", 400),
-  };
-
-  let strand = match store.resolve_strand(strand_cid).await {
-    Ok(s) => s,
-    Err(ResolutionError::NotFound) => return Response::error("Strand not yet authorized", 401),
-    Err(e) => return ApiError::from(e).to_response(),
-  };
-
-  let tixels: Vec<Tixel> = match car_to_twines(bytes.as_ref()).await {
-    Ok(tixels) => tixels,
-    Err(e) => return e.to_response(),
-  };
-
-  let mut twines = match tixels.into_iter()
-    .map(|t| Twine::try_new(strand.clone().unpack(), t))
-    .collect::<std::result::Result<Vec<Twine>, _>>()
-  {
-    Ok(twines) => twines,
-    Err(e) => return ApiError::from(e).to_response(),
-  };
-
-  // sort the twines by their index
-  twines.sort_by(|a, b| a.index().cmp(&b.index()));
-
-  match store.save_many(twines).await {
-    Ok(_) => {},
-    Err(e) => return ApiError::from(e).to_response(),
-  };
-
-  Response::ok("Put tixels")
-}
-
-async fn register_strand(mut req: Request, ctx: Ctx) -> Result<Response> {
-  let store = &ctx.data;
-  let db = &store.db;
-  let reg = match req.json::<RegistrationRequest>().await {
-    Ok(reg) => reg,
-    Err(e) => {
-      console_debug!("{:?}", e);
-      return Response::error(e.to_string(), 400);
-    },
-  };
-
-  let strand = reg.strand.clone().unpack();
-
-  // check if the strand is already registered
-  if let Ok(true) = store.has_strand(&strand.cid()).await {
-    return Response::error("Strand already registered", 409);
-  }
-
-  // check if we're accepting all
-  if ctx.var("ACCEPT_ALL_STRANDS").map(|s| s.to_string()).unwrap_or("false".to_string()) == "true" {
-    let record = RegistrationRecord::new_preapproved(reg.email, strand.cid(), strand.clone());
-    record.save(db).await?;
-    return match store.save(strand).await {
-      Ok(_) => {
-        let record: RegistrationRecordJson = record.try_into().map_err(|e: VerificationError| worker::Error::RustError(e.to_string()))?;
-        Response::from_json(&record)
-      },
-      Err(e) => ApiError::from(e).to_response(),
-    };
-  }
-
-  // check if it's preapproved
-  if let Some(existing) = RegistrationRecord::check_approved(db, &strand).await? {
-    // it's preapproved so we can save the strand
-    match store.save(strand).await {
-      Ok(_) => {
-        let existing: RegistrationRecordJson = existing.try_into().map_err(|e: VerificationError| worker::Error::RustError(e.to_string()))?;
-        Response::from_json::<RegistrationRecordJson>(&existing)
-      },
-      Err(e) => ApiError::from(e).to_response(),
-    }
-  } else {
-    let record: RegistrationRecord = reg.into();
-    record.save(db).await?;
-    let record: RegistrationRecordJson = record.try_into().map_err(|e: VerificationError| worker::Error::RustError(e.to_string()))?;
-    Response::from_json::<RegistrationRecordJson>(&record)
-  }
-}
-
-async fn check_registration(_req: Request, ctx: Ctx) -> Result<Response> {
-  let uuid = match ctx.param("receipt_id") {
-    Some(receipt_id) => match Uuid::try_parse(receipt_id) {
-      Ok(uuid) => uuid,
-      Err(_) => return Response::error("Invalid receipt_id", 400),
-    },
-    None => return Response::error("Missing receipt_id", 400),
-  };
-
-  let db = &ctx.data.db;
-  match RegistrationRecord::fetch(db, uuid).await? {
-    Some(record) => {
-      let record: RegistrationRecordJson = record.try_into().map_err(|e: VerificationError| worker::Error::RustError(e.to_string()))?;
-      Response::from_json(&record)
-    },
-    None => Response::error("Not found", 404),
-  }
-}
-
-// only check POST and PUT requests
-async fn check_auth(req: &Request, env: &Env) -> std::result::Result<(), ApiError> {
-  if req.method() == Method::Get || req.method() == Method::Head {
-    return Ok(());
-  }
-  if req.path() == "/register" {
-    return Ok(());
-  }
-  let auth = req.headers().get("authorization")?.unwrap_or_default();
-  if !auth.starts_with("ApiKey ") {
-    return Err(ApiError::Unauthorized);
-  }
-  let api_key = auth.trim_start_matches("ApiKey ");
-  let expected_key = env.var("API_KEY").map(|s| s.to_string()).unwrap_or("".to_string());
-  if api_key != expected_key {
-    return Err(ApiError::Unauthorized);
-  }
-  Ok(())
-}
-
-async fn get_v1(mut req: Request, ctx: Ctx) -> Result<Response> {
+async fn proxy_v1(mut req: Request) -> Result<Response> {
   // forward the request to v1 store
-  let path = ctx.param("path").cloned().unwrap_or_else(|| "".to_string());
+  let uri = req.url()?;
+  let path = uri.path();
+  let path = path.strip_prefix("/v1").unwrap_or(path);
+  let path = path.strip_prefix("/").unwrap_or(path);
   let url = &format!("https://api.entwine.me/{}", path);
   let mut init = RequestInit::new();
 
@@ -311,50 +57,225 @@ async fn get_v1(mut req: Request, ctx: Ctx) -> Result<Response> {
   Ok(response)
 }
 
+fn twine_api_router(db: D1Database, max_query_length: u64, env: Env) -> axum::Router {
+  let store = d1_store::D1Store::new(db);
+  let options = twine_http_store::server::ApiOptions {
+    read_only: false,
+    max_query_length,
+    ..twine_http_store::server::ApiOptions::default()
+  };
+  let api = twine_http_store::server::api(store, options);
+
+  let expected_key = env.var("API_KEY").map(|s| s.to_string()).unwrap_or("".to_string());
+
+  // if let Err(e) = check_auth(&req, &env).await {
+  //   return e.to_response();
+  // }
+
+  let tower_service = tower::ServiceBuilder::new()
+    .service_fn(move |req: http::Request<axum::body::Body>| {
+      let service = api.clone();
+      async move {
+        use hyper::service::Service;
+        send::SendFuture::new(service.call(req)).await
+      }
+    });
+
+  axum::Router::new()
+    .fallback_service(tower_service)
+    .layer(axum::middleware::from_fn(move |headers: axum::http::HeaderMap, req: http::Request<axum::body::Body>, next: axum::middleware::Next| {
+      let expected_key = expected_key.clone();
+      async move {
+        if req.method() == http::Method::GET || req.method() == http::Method::HEAD {
+          return Ok(next.run(req).await);
+        }
+        let auth = headers.get("authorization").ok_or((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
+        if !auth.to_str().unwrap_or_default().starts_with("ApiKey ") {
+          return Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()));
+        }
+        let api_key = auth.to_str().unwrap_or_default().trim_start_matches("ApiKey ");
+        if api_key != expected_key {
+          return Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()));
+        }
+        let res = next.run(req).await;
+        Ok(res)
+      }
+    }))
+}
+
+async fn call_worker_handler<H, F>(handler: H, req: http::Request<axum::body::Body>) -> std::result::Result<http::Response<axum::body::Body>, Infallible>
+where H: FnOnce(Request) -> F + Clone + Send + 'static,
+      F: futures::Future<Output = Result<worker::Response>> + 'static,
+{
+  let handler = handler.clone();
+  match send::SendFuture::new(handler(req.try_into().unwrap())).await {
+    Ok(res) => {
+      let res : http::Response<worker::Body> = res.try_into().unwrap();
+      Ok(res.map(|b| axum::body::Body::from_stream(BodyDataStream::new(b))))
+    },
+    Err(e) => {
+      use axum::response::IntoResponse;
+      Ok((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
+    }
+  }
+}
+
+fn router(env: Env) -> axum::Router {
+  use axum::Json;
+  use axum::extract::{State, Path};
+  use axum::response::IntoResponse;
+  use axum::routing::{get, post};
+  let service = tower::service_fn(move |req: http::Request<axum::body::Body>| {
+    call_worker_handler(proxy_v1, req)
+  });
+
+  #[worker::send]
+  async fn registration_route(State(env): State<Env>) -> std::result::Result<http::Response<axum::body::Body>, Infallible> {
+    let url: String = ["https://dummyurl.com/", "register.html"].concat();
+    let res = env.assets("ASSETS")
+      .expect("NEED ASSETS")
+      .fetch(url, None).await;
+    match res {
+      Ok(res) => {
+        let res: http::Response<worker::Body> = res.try_into().unwrap();
+        Ok(res.map(|b| axum::body::Body::from_stream(BodyDataStream::new(b))))
+      },
+      Err(e) => {
+        Ok(
+          (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        )
+      }
+    }
+  }
+
+  #[worker::send]
+  async fn register_strand(State(env): State<Env>, Json(reg): Json<RegistrationRequest>) -> std::result::Result<Json<RegistrationRecordJson>, (axum::http::StatusCode, String)> {
+    let store = d1_store::D1Store::new(env.d1("DB").map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to get DB".to_string()))?);
+    let db = &store.db;
+
+    let strand = reg.strand.clone().unpack();
+
+    // check if the strand is already registered
+    if let Ok(true) = store.has_strand(&strand.cid()).await {
+      return Err((StatusCode::CONFLICT, "Strand already registered".to_string()));
+    }
+
+    // check if we're accepting all
+    if env.var("ACCEPT_ALL_STRANDS").map(|s| s.to_string()).unwrap_or("false".to_string()) == "true" {
+      let record = RegistrationRecord::new_preapproved(reg.email, strand.cid(), strand.clone());
+      record.save(db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+      return match store.save(strand).await {
+        Ok(_) => {
+          let record: RegistrationRecordJson = record.try_into().map_err(|e: VerificationError| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+          Ok(Json(record))
+        },
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+      };
+    }
+
+    // check if it's preapproved
+    if let Some(existing) = RegistrationRecord::check_approved(db, &strand).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+      // it's preapproved so we can save the strand
+      match store.save(strand).await {
+        Ok(_) => {
+          let existing: RegistrationRecordJson = existing.try_into().map_err(|e: VerificationError| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+          return Ok(Json(existing));
+        },
+        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+      }
+    } else {
+      let record: RegistrationRecord = reg.into();
+      record.save(db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+      let record: RegistrationRecordJson = record.try_into().map_err(|e: VerificationError| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+      Ok(Json(record))
+    }
+  }
+
+  #[worker::send]
+  async fn check_registration(Path(receipt_id): Path<String>, State(env): State<Env>) -> std::result::Result<Json<RegistrationRecordJson>, (axum::http::StatusCode, &'static str)> {
+    let uuid = match Uuid::try_parse(&receipt_id) {
+      Ok(uuid) => uuid,
+      Err(_) => return Err((axum::http::StatusCode::BAD_REQUEST, "Invalid receipt id")),
+    };
+
+    let db = match env.d1("DB") {
+      Ok(db) => db,
+      Err(_) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to get DB")),
+    };
+
+    let record = match RegistrationRecord::fetch(&db, uuid).await {
+      Ok(record) => record,
+      Err(_) => {
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch record"));
+      },
+    };
+
+    match record {
+      Some(record) => {
+        let record: RegistrationRecordJson = record.try_into()
+          .map_err(|_: VerificationError| (http::StatusCode::INTERNAL_SERVER_ERROR, "Problem parsing record"))?;
+        Ok(Json(record))
+      },
+      None => Err((http::StatusCode::NOT_FOUND, "Receipt not found")),
+    }
+  }
+
+  axum::Router::new()
+    .route("/register", get(registration_route))
+    .route("/register", post(register_strand))
+    .route("/register/{:receipt_id}", get(check_registration))
+    .route_service("/v1", service)
+    .route_service("/v1{*path}", service)
+    .with_state(env)
+}
+
 #[event(fetch)]
 async fn fetch(
-  req: Request,
+  req: http::Request<worker::Body>,
   env: Env,
   _ctx: Context,
-) -> Result<Response> {
+) -> Result<http::Response<axum::body::Body>> {
   console_error_panic_hook::set_once();
 
   // if let Err(e) = check_auth(&req, &env).await {
   //   return e.to_response();
   // }
 
-  // let store = store::D1Store {
-  //   db: env.d1("DB")?,
-  //   max_batch_size: env.var("MAX_BATCH_SIZE").map_or(Ok(1000), |s| s.to_string().parse()).unwrap_or(1000),
-  // };
+  use tower::Service;
+  Ok(
+    axum::Router::new()
+      .merge(twine_api_router(env.d1("DB")?, get_max_batch_size(&env), env.clone()))
+      .merge(router(env))
+      .as_service()
+      .call(req)
+      .await?
+  )
 
-  let store = d1_store::D1Store::new(env.d1("DB")?);
-
-  let response = Router::with_data(store)
-    .on_async("/v1", get_v1)
-    .on_async("/v1/*path", get_v1)
-    .get_async("/register", |_req, env| async move {
-      let url: String = ["https://dummyurl.com/", &"register.html"].concat();
-      env.env.assets("ASSETS")
-        .expect("NEED ASSETS")
-        .fetch(url, None).await
-    })
-    .post_async("/register", register_strand)
-    .get_async("/register/:receipt_id", check_registration)
-    .get_async("/", list_strands)
-    .put_async("/", put_strands)
-    .put_async("/:strand_cid", put_tixels)
-    .get_async("/:query", exec_query)
-    .head_async("/:query", exec_has)
-    .head("/", |_, _| Response::empty())
-    .run(req, env)
-    .await;
-
-  response.map(|mut r| {
-    let _ = r.headers_mut()
-      .set("X-Spool-Version", "2");
-    r
-  })
+  // api.merge(
+  //   Router::with_data(store)
+  //     .on_async("/v1", proxy_v1)
+  //     .on_async("/v1/*path", proxy_v1)
+  //     .get_async("/register", |_req, env| async move {
+  //       let url: String = ["https://dummyurl.com/", "register.html"].concat();
+  //       Ok(env.env.assets("ASSETS")
+  //         .expect("NEED ASSETS")
+  //         .fetch(url, None).await?.try_into()?)
+  //     })
+  //     .post_async("/register", register_strand)
+  //     .get_async("/register/:receipt_id", check_registration)
+  //     // .get_async("/", list_strands)
+  //     // .put_async("/", put_strands)
+  //     // .put_async("/:strand_cid", put_tixels)
+  //     // .get_async("/:query", exec_query)
+  //     // .head_async("/:query", exec_has)
+  //     // .head("/", |_, _| Response::empty())
+  // ).run(req, env).await
+  // use hyper::service::Service;
+  // Ok(api.call(req.try_into()?).await
+  //   .unwrap()
+  //   .map(|b| Body::from_stream(BodyDataStream::new(b))
+  //   .unwrap())
+  // )
 }
 
 // #[event(scheduled)]

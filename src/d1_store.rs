@@ -7,6 +7,7 @@ use futures::stream::{StreamExt, TryStreamExt};
 use twine_protocol::twine_lib::as_cid::AsCid;
 use twine_protocol::twine_lib::twine::{AnyTwine, TwineBlock};
 use std::pin::Pin;
+use std::sync::Arc;
 use twine_protocol::twine_lib::errors::{ResolutionError, StoreError};
 use twine_protocol::twine_lib::{twine::{Strand, Tixel}, Cid};
 use twine_protocol::twine_lib::resolver::{unchecked_base, Resolver};
@@ -45,13 +46,14 @@ impl BlockRecord {
   }
 }
 
+#[derive(Clone)]
 pub struct D1Store {
-  pub db: D1Database,
+  pub db: Arc<D1Database>,
 }
 
 impl D1Store {
   pub fn new(db: D1Database) -> Self {
-    Self { db }
+    Self { db: Arc::new(db) }
   }
 
   async fn all_strands(&self) -> Result<Pin<Box<dyn Stream<Item = Result<Strand, ResolutionError>> + '_>>, ResolutionError> {
