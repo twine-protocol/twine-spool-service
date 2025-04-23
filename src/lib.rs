@@ -232,6 +232,7 @@ fn router(env: Env) -> axum::Router {
     .with_state(env)
 }
 
+#[cfg(not(feature = "admin"))]
 #[event(fetch)]
 async fn fetch(
   req: http::Request<worker::Body>,
@@ -292,6 +293,40 @@ async fn fetch(
   //   .map(|b| Body::from_stream(BodyDataStream::new(b))
   //   .unwrap())
   // )
+}
+
+#[cfg(feature = "admin")]
+#[event(fetch)]
+async fn fetch(
+  req: http::Request<worker::Body>,
+  env: Env,
+  _ctx: Context,
+) -> Result<http::Response<axum::body::Body>> {
+  console_error_panic_hook::set_once();
+
+  use axum::extract::{State, Path, Json};
+  #[worker::send]
+  async fn list_keys(
+    State(env): State<Env>,
+  ) -> std::result::Result<Json<Vec<String>>, (axum::http::StatusCode, String)> {
+    Ok(
+      Json(
+        vec![
+          "key1".to_string(),
+        ]
+      )
+    )
+  }
+
+  use tower::Service;
+  Ok(
+    axum::Router::new()
+      .route("/keys", axum::routing::get(list_keys))
+      .with_state(env.clone())
+      .as_service()
+      .call(req)
+      .await?
+  )
 }
 
 // #[event(scheduled)]

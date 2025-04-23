@@ -12,7 +12,7 @@ database_name = "spool-prod"
 database_id = "9f6220b6-25f3-4bc0-979a-c5803785ef3b"
 
 [assets]
-directory = "./assets/"
+directory = "./frontend/"
 binding = "ASSETS"
 run_worker_first = true
 
@@ -28,3 +28,19 @@ database_id = "31c8b3c3-e3b8-4037-86fd-ea73357971a6"
 ACCEPT_ALL_STRANDS = "true"
 MAX_BATCH_SIZE = "10000"
 
+[env.admin]
+build.command = """
+npm install --prefix ./admin-frontend && \
+npm run --prefix ./admin-frontend build && \
+cargo install -q worker-build && \
+worker-build --release --features admin
+"""
+
+[env.admin.assets]
+directory = "./admin-frontend/build/"
+binding = "ASSETS"
+
+[[env.admin.d1_databases]]
+binding = "DB"
+database_name = "spool-dev"
+database_id = "31c8b3c3-e3b8-4037-86fd-ea73357971a6"
