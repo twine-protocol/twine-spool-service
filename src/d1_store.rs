@@ -181,11 +181,19 @@ impl D1Store {
   async fn save_tixel(&self, tixel: &Tixel) -> Result<(), StoreError> {
     let query = "
       INSERT OR IGNORE INTO Tixels (cid, data, strand, idx)
-      SELECT ?1, ?2, s.id, ?4 FROM Strands s
-      WHERE s.cid = ?3 AND
-      (?4 = 0 OR EXISTS (
-        SELECT 1 FROM Tixels t WHERE t.strand = s.id AND t.idx = ?4 - 1 AND t.cid = ?5
-      ));
+      SELECT ?1, ?2, s.id, ?4
+      FROM Strands s
+      WHERE s.cid = ?3
+        AND s.writable = 1
+        AND (
+          ?4 = 0 OR EXISTS (
+            SELECT 1
+            FROM Tixels t
+            WHERE t.strand = s.id
+              AND t.idx = ?4 - 1
+              AND t.cid = ?5
+          )
+        );
     ";
     query!(
       &self.db,

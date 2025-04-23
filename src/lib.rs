@@ -1,5 +1,6 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, str::FromStr};
 
+use access_control::{ApiKey, ApiKeyRecord};
 // use car::car_to_twines;
 // use futures::TryStreamExt;
 use http::StatusCode;
@@ -8,6 +9,7 @@ use uuid::Uuid;
 use worker::*;
 use twine_protocol::prelude::{unchecked_base::BaseResolver, *};
 
+mod access_control;
 mod errors;
 use errors::*;
 mod store;
@@ -59,14 +61,13 @@ async fn proxy_v1(mut req: Request) -> Result<Response> {
 
 fn twine_api_router(db: D1Database, max_query_length: u64, env: Env) -> axum::Router {
   let store = d1_store::D1Store::new(db);
+  let db = store.db.clone();
   let options = twine_http_store::server::ApiOptions {
     read_only: false,
     max_query_length,
     ..twine_http_store::server::ApiOptions::default()
   };
   let api = twine_http_store::server::api(store, options);
-
-  let expected_key = env.var("API_KEY").map(|s| s.to_string()).unwrap_or("".to_string());
 
   // if let Err(e) = check_auth(&req, &env).await {
   //   return e.to_response();
@@ -84,7 +85,7 @@ fn twine_api_router(db: D1Database, max_query_length: u64, env: Env) -> axum::Ro
   axum::Router::new()
     .fallback_service(tower_service)
     .layer(axum::middleware::from_fn(move |headers: axum::http::HeaderMap, req: http::Request<axum::body::Body>, next: axum::middleware::Next| {
-      let expected_key = expected_key.clone();
+      let db = db.clone();
       async move {
         if req.method() == http::Method::GET || req.method() == http::Method::HEAD {
           return Ok(next.run(req).await);
@@ -94,8 +95,10 @@ fn twine_api_router(db: D1Database, max_query_length: u64, env: Env) -> axum::Ro
           return Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()));
         }
         let api_key = auth.to_str().unwrap_or_default().trim_start_matches("ApiKey ");
-        if api_key != expected_key {
-          return Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()));
+        let api_key = ApiKey::from_str(api_key).map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid Api Key".to_string()))?;
+        if let Err(e) = send::SendFuture::new(api_key.validate(&db)).await {
+          use axum::response::IntoResponse;
+          return Ok(e.into_response());
         }
         let res = next.run(req).await;
         Ok(res)
@@ -241,9 +244,22 @@ async fn fetch(
   //   return e.to_response();
   // }
 
+  // #[worker::send]
+  // async fn gen_test_key(
+  //   axum::extract::State(env): axum::extract::State<Env>,
+  // ) -> std::result::Result<String, ApiKeyValidationError> {
+  //   let key = ApiKey::generate();
+  //   ApiKeyRecord::new(&key, None)
+  //     .save(&env.d1("DB").unwrap())
+  //     .await?;
+  //   Ok(key.to_string())
+  // }
+
   use tower::Service;
   Ok(
     axum::Router::new()
+      // .route("/testkey", axum::routing::get(gen_test_key))
+      .with_state(env.clone())
       .merge(twine_api_router(env.d1("DB")?, get_max_batch_size(&env), env.clone()))
       .merge(router(env))
       .as_service()

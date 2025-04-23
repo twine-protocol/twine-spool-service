@@ -27,5 +27,4 @@ database_id = "31c8b3c3-e3b8-4037-86fd-ea73357971a6"
 [env.dev.vars]
 ACCEPT_ALL_STRANDS = "true"
 MAX_BATCH_SIZE = "10000"
-API_KEY = "dev"
 

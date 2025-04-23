@@ -1,8 +1,8 @@
--- Command to run: wrangler d1 execute spool-prod --local --file=./schema.sql
+-- Command to run: wrangler d1 execute spool-dev --local --file=./schema.sql
 -- If starting fresh...
--- DROP TABLE IF EXISTS Tixels;
--- DROP TABLE IF EXISTS Strands;
--- DROP TABLE IF EXISTS Registrations;
+DROP TABLE IF EXISTS Tixels;
+DROP TABLE IF EXISTS Strands;
+DROP TABLE IF EXISTS Registrations;
 
 CREATE TABLE IF NOT EXISTS Strands (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS Strands (
   cid BINARY(82) UNIQUE NOT NULL,
   spec TEXT NOT NULL,
   data BLOB NOT NULL,
-  details JSON DEFAULT '{}'
+  details JSON DEFAULT '{}',
+  writable BOOLEAN DEFAULT 1 NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_strands_cid ON Strands (cid);
@@ -34,4 +35,13 @@ CREATE TABLE IF NOT EXISTS Registrations (
   status TEXT NOT NULL,
   strand_cid BINARY(82) UNIQUE NOT NULL,
   strand BLOB
+);
+
+-- Api Keys
+CREATE TABLE IF NOT EXISTS ApiKeys (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hashed_key TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expiration TIMESTAMP
 );
