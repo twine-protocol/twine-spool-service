@@ -29,7 +29,7 @@
       <SkipToContent />
     </svelte:fragment>
     <HeaderNav>
-      <HeaderNavItem href="/" text="Link 1" />
+      <HeaderNavItem href="#/apikeys" text="Api Keys" />
       <HeaderNavItem href="/" text="Link 2" />
       <HeaderNavItem href="/" text="Link 3" />
       <HeaderNavMenu text="Menu">
@@ -37,7 +37,6 @@
         <HeaderNavItem href="/" text="Link 2" />
         <HeaderNavItem href="/" text="Link 3" />
       </HeaderNavMenu>
-      <HeaderNavItem href="/" text="Link 4" />
     </HeaderNav>
   </Header>
 

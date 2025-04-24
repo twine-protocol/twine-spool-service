@@ -1,6 +1,6 @@
 use std::{convert::Infallible, str::FromStr};
 
-use access_control::{ApiKey, ApiKeyRecord};
+use access_control::ApiKey;
 // use car::car_to_twines;
 // use futures::TryStreamExt;
 use http::StatusCode;
@@ -11,15 +11,17 @@ use twine_protocol::prelude::{unchecked_base::BaseResolver, *};
 
 mod access_control;
 mod errors;
-use errors::*;
-mod store;
+// use errors::*;
+// mod store;
 mod d1_store;
-mod formatting;
+// mod formatting;
 // use formatting::*;
 mod registration;
 use registration::*;
 mod dag_json;
-mod car;
+// mod car;
+
+mod admin_routes;
 
 fn get_max_batch_size(env: &Env) -> u64 {
   env.var("MAX_BATCH_SIZE")
@@ -245,21 +247,9 @@ async fn fetch(
   //   return e.to_response();
   // }
 
-  // #[worker::send]
-  // async fn gen_test_key(
-  //   axum::extract::State(env): axum::extract::State<Env>,
-  // ) -> std::result::Result<String, ApiKeyValidationError> {
-  //   let key = ApiKey::generate();
-  //   ApiKeyRecord::new(&key, None)
-  //     .save(&env.d1("DB").unwrap())
-  //     .await?;
-  //   Ok(key.to_string())
-  // }
-
   use tower::Service;
   Ok(
     axum::Router::new()
-      // .route("/testkey", axum::routing::get(gen_test_key))
       .with_state(env.clone())
       .merge(twine_api_router(env.d1("DB")?, get_max_batch_size(&env), env.clone()))
       .merge(router(env))
@@ -304,24 +294,25 @@ async fn fetch(
 ) -> Result<http::Response<axum::body::Body>> {
   console_error_panic_hook::set_once();
 
-  use axum::extract::{State, Path, Json};
+  use access_control::ApiKeyRecord;
+  use errors::ApiKeyValidationError;
+
   #[worker::send]
-  async fn list_keys(
-    State(env): State<Env>,
-  ) -> std::result::Result<Json<Vec<String>>, (axum::http::StatusCode, String)> {
-    Ok(
-      Json(
-        vec![
-          "key1".to_string(),
-        ]
-      )
-    )
+  async fn gen_test_key(
+    axum::extract::State(env): axum::extract::State<Env>,
+  ) -> std::result::Result<String, ApiKeyValidationError> {
+    let key = ApiKey::generate();
+    ApiKeyRecord::new(&key, "Test Key", None)
+      .save(&env.d1("DB").unwrap())
+      .await?;
+    Ok(key.to_string())
   }
 
   use tower::Service;
   Ok(
     axum::Router::new()
-      .route("/keys", axum::routing::get(list_keys))
+      .route("/testkey", axum::routing::get(gen_test_key))
+      .nest("/api", admin_routes::api_keys::router())
       .with_state(env.clone())
       .as_service()
       .call(req)

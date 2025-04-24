@@ -6,7 +6,8 @@ const config = {
 	kit: {
 		adapter: adapter({
 			fallback: 'index.html'
-		})
+		}),
+		router: { type: 'hash' }
 	}
 };
 

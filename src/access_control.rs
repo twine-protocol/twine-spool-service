@@ -61,30 +61,56 @@ impl ApiKey {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApiKeyRecord {
+  pub id: i64,
+  pub description: String,
   pub hashed_key: String,
   pub created_at: NaiveDateTime,
   pub last_used_at: NaiveDateTime,
-  pub expiration: Option<NaiveDateTime>,
+  pub expires_at: Option<NaiveDateTime>,
 }
 
 impl ApiKeyRecord {
-  pub fn new(api_key: &ApiKey, expiration: Option<NaiveDateTime>) -> Self {
+  pub fn new<S: Into<String>>(api_key: &ApiKey, description: S, expires_at: Option<NaiveDateTime>) -> Self {
     let bytes = api_key.bytes();
     let salt = SaltString::from_b64(SALT_STR).unwrap();
     let hashed_key = Scrypt.hash_password(&bytes, &salt).unwrap().to_string();
 
     Self {
+      id: -1,
+      description: description.into(),
       hashed_key,
       created_at: Utc::now().naive_utc(),
       last_used_at: Utc::now().naive_utc(),
-      expiration,
+      expires_at,
     }
+  }
+
+  pub async fn get(db: &D1Database, id: u64) -> std::result::Result<Option<ApiKeyRecord>, ApiKeyValidationError> {
+    let query_str = "SELECT * FROM ApiKeys WHERE id = ? LIMIT 1";
+    let query = query!(db, query_str, id)?;
+    let record: Option<ApiKeyRecord> = query.first(None).await?;
+    Ok(record)
+  }
+
+  pub async fn delete(db: &D1Database, id: u64) -> std::result::Result<(), ApiKeyValidationError> {
+    let query_str = "DELETE FROM ApiKeys WHERE id = ?";
+    let query = query!(db, query_str, id)?;
+    query.run().await?;
+    Ok(())
+  }
+
+  pub async fn get_all(db: &D1Database) -> std::result::Result<Vec<ApiKeyRecord>, ApiKeyValidationError> {
+    let query_str = "SELECT * FROM ApiKeys";
+    let query = query!(db, query_str);
+    let result = query.all().await?;
+    let records: Vec<ApiKeyRecord> = result.results()?;
+    Ok(records)
   }
 
   pub fn validate(&self, api_key: &ApiKey) -> std::result::Result<(), ApiKeyValidationError> {
     // check if the key is expired
-    if let Some(expiration) = self.expiration {
-      if expiration < Utc::now().naive_utc() {
+    if let Some(expires_at) = self.expires_at {
+      if expires_at < Utc::now().naive_utc() {
         return Err(ApiKeyValidationError::ExpiredKey);
       }
     }
@@ -97,16 +123,19 @@ impl ApiKeyRecord {
     }
   }
 
-  pub async fn save(&self, db: &D1Database) -> std::result::Result<(), ApiKeyValidationError> {
+  pub async fn save(&mut self, db: &D1Database) -> std::result::Result<&mut Self, ApiKeyValidationError> {
     let query_str = r#"
-    INSERT INTO ApiKeys (hashed_key, created_at, last_used_at, expiration)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO ApiKeys (description, hashed_key, created_at, last_used_at, expires_at)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(hashed_key) DO UPDATE SET
       last_used_at = excluded.last_used_at;
     "#;
-    let query = query!(db, query_str, self.hashed_key, self.created_at, self.last_used_at, self.expiration)?;
-    query.run().await?;
-    Ok(())
+    let query = query!(db, query_str, self.description, self.hashed_key, self.created_at, self.last_used_at, self.expires_at)?;
+    let meta = query.run().await?.meta()?.unwrap();
+    if self.id == -1 {
+      self.id = meta.last_row_id.unwrap_or(-1);
+    }
+    Ok(self)
   }
 
   pub async fn key_is_valid(db: &D1Database, api_key: &ApiKey) -> std::result::Result<(), ApiKeyValidationError> {

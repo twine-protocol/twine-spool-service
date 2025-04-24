@@ -19,6 +19,8 @@ pub enum ApiError {
   StoreError(#[from] StoreError),
   #[error("Invalid query: {0}")]
   InvalidQuery(String),
+  #[error("Api key error: {0}")]
+  ApiKeyError(#[from] ApiKeyValidationError),
   #[error("Not found")]
   NotFound,
   #[error("Unauthorized")]
@@ -34,26 +36,46 @@ impl From<ConversionError> for ApiError {
 impl ApiError {
   pub fn to_response(&self) -> Result<worker::Response, worker::Error> {
     console_error!("ApiError: {:?}", self);
+    let (text, status) = self.response_info();
+    worker::Response::error(text, status)
+  }
+
+  pub fn response_info(&self) -> (String, u16) {
     match self {
-      ApiError::ServerError(e) => worker::Response::error(e.to_string(), 500),
-      ApiError::VerificationError(e) => worker::Response::error(e.to_string(), 500),
-      ApiError::InvalidQuery(e) => worker::Response::error(e.to_string(), 400),
-      ApiError::NotFound => worker::Response::error("Not found", 404),
-      ApiError::Corrupted(e) => worker::Response::error(e.to_string(), 500),
-      ApiError::BadRequestData(e) => worker::Response::error(e.to_string(), 400),
-      ApiError::Unauthorized => worker::Response::error("Unauthorized", 401),
+      ApiError::ServerError(e) => (e.to_string(), 500),
+      ApiError::VerificationError(e) => (e.to_string(), 500),
+      ApiError::InvalidQuery(e) => (e.to_string(), 400),
+      ApiError::NotFound => ("Not found".into(), 404),
+      ApiError::Corrupted(e) => (e.to_string(), 500),
+      ApiError::BadRequestData(e) => (e.to_string(), 400),
+      ApiError::Unauthorized => ("Unauthorized".into(), 401),
       ApiError::ResolutionError(e) => match e {
-        ResolutionError::NotFound => worker::Response::error("Not found", 404),
-        _ => worker::Response::error(e.to_string(), 500),
+        ResolutionError::NotFound => ("Not found".into(), 404),
+        _ => (e.to_string(), 500),
       },
       ApiError::StoreError(e) => match e {
         StoreError::Fetching(e) => match e {
-          ResolutionError::NotFound => worker::Response::error("Not found", 404),
-          _ => worker::Response::error(e.to_string(), 500),
+          ResolutionError::NotFound => ("Not found".into(), 404),
+          _ => (e.to_string(), 500),
         },
-        _ => worker::Response::error(e.to_string(), 500),
+        _ => (e.to_string(), 500),
+      },
+      ApiError::ApiKeyError(e) => match e {
+        ApiKeyValidationError::InvalidKey => ("Invalid API key".into(), 401),
+        ApiKeyValidationError::ExpiredKey => ("Expired API key".into(), 401),
+        ApiKeyValidationError::DatabaseError(_) => {
+          ("Server error".into(), 500)
+        }
       },
     }
+  }
+}
+
+impl IntoResponse for ApiError {
+  fn into_response(self) -> Response<axum::body::Body> {
+    let (msg, code) = self.response_info();
+    let code = StatusCode::from_u16(code).unwrap();
+    (code, msg).into_response()
   }
 }
 
