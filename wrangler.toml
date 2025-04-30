@@ -26,7 +26,7 @@ MAX_BATCH_SIZE = "10000"
 
 # production
 [[env.production.routes]]
-pattern = "entwine.network"
+pattern = "spool.entwine.network"
 custom_domain = true
 
 [[env.production.d1_databases]]
