@@ -34,6 +34,9 @@ binding = "DB" # i.e. available in your Worker on env.DB
 database_name = "spool-prod"
 database_id = "9f6220b6-25f3-4bc0-979a-c5803785ef3b"
 
+[env.production.observability]
+enabled = true
+
 # Admin panel
 [env.admin]
 build.command = """
@@ -51,3 +54,6 @@ binding = "ASSETS"
 binding = "DB"
 database_name = "spool-prod"
 database_id = "9f6220b6-25f3-4bc0-979a-c5803785ef3b"
+
+[env.admin.observability]
+enabled = true
