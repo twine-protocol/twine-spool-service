@@ -175,6 +175,7 @@ impl D1Store {
       String::from_utf8(DagJsonCodec::encode_to_vec(strand.details()).unwrap()).unwrap()
     ).map_err(to_storage_error)?;
     query.run().await.map_err(to_storage_error)?;
+    log::info!("New strand saved: {}", strand.cid());
     Ok(())
   }
 
@@ -208,6 +209,7 @@ impl D1Store {
     .run()
     .await
     .map_err(to_storage_error)?;
+    log::debug!("Saved Tixel {}:{}", tixel.strand_cid(), tixel.cid());
     Ok(())
   }
 

@@ -21,7 +21,7 @@ mod registration;
 use registration::*;
 mod dag_json;
 // mod car;
-
+mod logging;
 mod admin_routes;
 
 fn get_max_batch_size(env: &Env) -> u64 {
@@ -239,6 +239,14 @@ fn router(env: Env) -> axum::Router {
     .with_state(env)
 }
 
+#[event(start)]
+fn start(){
+  console_error_panic_hook::set_once();
+  if let Err(e) = logging::WebLogger::init_with_level(log::Level::Debug) {
+    console_error!("Problem starting logger: {}", e);
+  };
+}
+
 #[cfg(not(feature = "admin"))]
 #[event(fetch)]
 async fn fetch(
@@ -246,8 +254,8 @@ async fn fetch(
   env: Env,
   _ctx: Context,
 ) -> Result<http::Response<axum::body::Body>> {
-  console_error_panic_hook::set_once();
 
+  log::info!("Hello world");
   // if let Err(e) = check_auth(&req, &env).await {
   //   return e.to_response();
   // }

@@ -59,6 +59,7 @@ pub mod api_keys {
       payload.expires_at.map(|d| d.naive_utc())
     );
     record.save(&db).await?;
+    log::info!("New API Key created: {}", record.description);
     Ok(Json(record))
   }
 
@@ -69,6 +70,7 @@ pub mod api_keys {
   ) -> std::result::Result<(), ApiError> {
     let db = env.d1("DB")?;
     ApiKeyRecord::delete(&db, id).await?;
+    log::info!("API Key deleted: id {}", id);
     Ok(())
   }
 

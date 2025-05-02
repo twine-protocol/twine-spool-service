@@ -35,8 +35,12 @@ impl From<ConversionError> for ApiError {
 
 impl ApiError {
   pub fn to_response(&self) -> Result<worker::Response, worker::Error> {
-    console_error!("ApiError: {:?}", self);
     let (text, status) = self.response_info();
+    if status == 500 {
+      log::error!("API Error: {}", text);
+    } else {
+      log::debug!("API response (code: {}): {}", status, text);
+    }
     worker::Response::error(text, status)
   }
 
@@ -75,6 +79,11 @@ impl IntoResponse for ApiError {
   fn into_response(self) -> Response<axum::body::Body> {
     let (msg, code) = self.response_info();
     let code = StatusCode::from_u16(code).unwrap();
+    if code == 500 {
+      log::error!("API Error: {}", msg);
+    } else {
+      log::debug!("API response (code: {}): {}", code, msg);
+    }
     (code, msg).into_response()
   }
 }
@@ -92,7 +101,6 @@ pub enum ApiKeyValidationError {
 
 impl IntoResponse for ApiKeyValidationError {
   fn into_response(self) -> Response<axum::body::Body> {
-    console_error!("ApiKeyValidationError: {:?}", self);
     match self {
       ApiKeyValidationError::InvalidKey => {
         (StatusCode::UNAUTHORIZED, "Invalid API key").into_response()
