@@ -255,7 +255,6 @@ async fn fetch(
   _ctx: Context,
 ) -> Result<http::Response<axum::body::Body>> {
 
-  log::info!("Hello world");
   // if let Err(e) = check_auth(&req, &env).await {
   //   return e.to_response();
   // }
