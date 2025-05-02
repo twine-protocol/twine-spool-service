@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { StructuredList, StructuredListHead, StructuredListBody, StructuredListRow, StructuredListSkeleton, StructuredListCell, Button, Tile, ComposedModal, ModalHeader, ModalBody, Form, ModalFooter, TextInput, DatePicker, DatePickerInput } from 'carbon-components-svelte'
+  import { StructuredList, StructuredListHead, StructuredListBody, StructuredListRow, StructuredListSkeleton, StructuredListCell, Button, Tile, ComposedModal, ModalHeader, ModalBody, Form, ModalFooter, TextInput, DatePicker, DatePickerInput, Row, Column, Grid } from 'carbon-components-svelte'
   import * as ApiKeys from '$lib/state/ApiKeys'
 	import { Add } from 'carbon-icons-svelte'
+	import { onMount } from 'svelte'
 
   let createDialog = $state(false)
 
-  let apiKeys = $state(ApiKeys.list())
+  let apiKeys : Promise<Array<ApiKeys.ApiKey>> = $state(Promise.resolve([]))
+  let createdKey = $state("")
 
   const defaultData = () => ({
     description: '',
@@ -14,6 +16,10 @@
 
   let keyData = $state(defaultData())
 
+  onMount(() => {
+    apiKeys = ApiKeys.list()
+  })
+
   const cancelCreate = () => {
     createDialog = false
     keyData = defaultData()
@@ -21,7 +27,15 @@
 
   async function submit() {
     try {
-      await ApiKeys.create({ description: keyData.description, expires_at: keyData.expires_at })
+      const bytes = new Uint8Array(32)
+      crypto.getRandomValues(bytes)
+      const key = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+      await ApiKeys.create({
+        key,
+        description: keyData.description,
+        expires_at: keyData.expires_at
+      })
+      createdKey = key
       cancelCreate()
       apiKeys = ApiKeys.list()
     } catch (error) {
@@ -41,6 +55,24 @@
   }
 
 </script>
+
+{#if createdKey}
+<Tile>
+  <Grid>
+  <Row>
+    <Column style="align-content: center;">
+      <p>API Key Created. Save it now. You won't be able to see it after navigating away.</p>
+    </Column>
+    <Column>
+      <TextInput
+        readonly
+        value={createdKey}
+      />
+    </Column>
+  </Row>
+  </Grid>
+</Tile>
+{/if}
 
 {#await apiKeys}
   <StructuredListSkeleton />

@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import {
     Header,
     HeaderNav,
@@ -17,10 +17,21 @@
     Column,
   } from "carbon-components-svelte"
   import "carbon-components-svelte/css/g90.css"
+  import { afterNavigate } from "$app/navigation"
 
-  import Fade from "carbon-icons-svelte/lib/Fade.svelte"
+  const navItems = [
+    { text: 'Dashboard', href: '#/' },
+    { text: 'Api Keys', href: '#/ApiKeys' }
+  ]
 
   let isSideNavOpen = false
+  let route = $state('')
+
+  afterNavigate((nav) => {
+    route = nav.to?.url.hash ?? ''
+    console.log(route)
+  })
+
 </script>
 
 <main>
@@ -29,14 +40,9 @@
       <SkipToContent />
     </svelte:fragment>
     <HeaderNav>
-      <HeaderNavItem href="#/apikeys" text="Api Keys" />
-      <HeaderNavItem href="/" text="Link 2" />
-      <HeaderNavItem href="/" text="Link 3" />
-      <HeaderNavMenu text="Menu">
-        <HeaderNavItem href="/" text="Link 1" />
-        <HeaderNavItem href="/" text="Link 2" />
-        <HeaderNavItem href="/" text="Link 3" />
-      </HeaderNavMenu>
+      {#each navItems as props}
+      <HeaderNavItem {...props} isSelected={route == (props.href)} />
+      {/each}
     </HeaderNav>
   </Header>
 

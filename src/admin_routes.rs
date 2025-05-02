@@ -1,5 +1,5 @@
 use axum::extract::{State, Path, Json};
-use axum::routing::{get, post, put, delete};
+use axum::routing::{get, post, delete};
 use axum::Router;
 
 pub mod api_keys {
@@ -40,6 +40,7 @@ pub mod api_keys {
 
   #[derive(Debug, Clone, Deserialize)]
   struct KeyPostData {
+    pub key: String,
     pub description: String,
     pub expires_at: Option<chrono::DateTime<Utc>>
   }
@@ -49,8 +50,9 @@ pub mod api_keys {
     State(env): State<Env>,
     Json(payload): Json<KeyPostData>
   ) -> std::result::Result<Json<ApiKeyRecord>, ApiError> {
+    use std::str::FromStr;
     let db = env.d1("DB")?;
-    let key = ApiKey::generate();
+    let key = ApiKey::from_str(&payload.key).map_err(|e| ApiError::BadRequestData(e.to_string()))?;
     let mut record = ApiKeyRecord::new(
       &key,
       payload.description,

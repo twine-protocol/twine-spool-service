@@ -1,11 +1,8 @@
 <script>
-  import { Button } from "carbon-components-svelte";
 </script>
 
 <article>
-  <h1>Overview</h1>
+  <h1>Dashboard</h1>
 
-  <p>This is the overview page for the Spool Admin Panel.</p>
-
-  <Button>Primary button</Button>
+  <p>Work in progress</p>
 </article>

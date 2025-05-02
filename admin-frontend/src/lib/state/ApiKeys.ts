@@ -23,7 +23,14 @@ export const list: ListCall<ApiKey> = async () => {
   return response.json()
 }
 
-export const create: CreateCall<ApiKey, { description: string; expires_at?: DateString }> = async (data) => {
+export type CreateKeyOptions = {
+  key: string,
+  description: string,
+  expires_at?: DateString,
+}
+
+export const create: CreateCall<ApiKey, CreateKeyOptions> = async (data) => {
+  data.expires_at = data.expires_at || undefined
   const response = await fetch('/api/apikeys', {
     method: 'POST',
     headers: {
