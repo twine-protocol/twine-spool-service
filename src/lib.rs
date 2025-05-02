@@ -5,6 +5,7 @@ use access_control::ApiKey;
 // use futures::TryStreamExt;
 use http::StatusCode;
 use http_body_util::BodyDataStream;
+use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 use worker::*;
 use twine_protocol::prelude::{unchecked_base::BaseResolver, *};
@@ -106,6 +107,10 @@ fn twine_api_router(db: D1Database, max_query_length: u64, env: Env) -> axum::Ro
         Ok(res)
       }
     }))
+    .layer(
+      CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+    )
 }
 
 async fn call_worker_handler<H, F>(handler: H, req: http::Request<axum::body::Body>) -> std::result::Result<http::Response<axum::body::Body>, Infallible>
