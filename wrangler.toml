@@ -24,6 +24,44 @@ database_id = "31c8b3c3-e3b8-4037-86fd-ea73357971a6"
 [env.dev.vars]
 MAX_BATCH_SIZE = "10000"
 
+# Staging
+[[env.staging.routes]]
+pattern = "staging.entwine.network"
+custom_domain = true
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "spool-dev"
+database_id = "31c8b3c3-e3b8-4037-86fd-ea73357971a6"
+
+[env.staging.observability]
+enabled = true
+
+# Staging Admin panel
+[env.admin-staging]
+build.command = """
+npm install --prefix ./admin-frontend && \
+npm run --prefix ./admin-frontend build && \
+cargo install -q worker-build && \
+worker-build --release --features admin
+"""
+
+[env.admin-staging.assets]
+directory = "./admin-frontend/build/"
+binding = "ASSETS"
+
+[[env.admin-staging.d1_databases]]
+binding = "DB"
+database_name = "spool-dev"
+database_id = "31c8b3c3-e3b8-4037-86fd-ea73357971a6"
+
+[env.admin-staging.observability]
+enabled = true
+
+[[env.admin-staging.routes]]
+pattern = "admin-staging.entwine.network"
+custom_domain = true
+
 # production
 [[env.production.routes]]
 pattern = "spool.entwine.network"
