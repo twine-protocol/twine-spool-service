@@ -21,7 +21,7 @@
 
   const navItems = [
     { text: 'Dashboard', href: '#/' },
-    { text: 'Api Keys', href: '#/ApiKeys' }
+    { text: 'Api Keys', href: '#/apikeys' }
   ]
 
   let isSideNavOpen = false
